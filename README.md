@@ -1,15 +1,17 @@
 # Raaziq MVP — Freight Quotation Automation + Shipment Tracking
 
-Backend for the Raaziq MVP: a Pakistan-based freight forwarder's two core workflows —
-freight quotation automation, and shipment tracking across the forwarding lifecycle.
-
-This is the backend only (Phases 1–4). There is no frontend yet; the API below is what
-a future React app will consume.
+Raaziq MVP: a Pakistan-based freight forwarder's two core workflows — freight quotation
+automation, and shipment tracking across the forwarding lifecycle. A FastAPI backend and
+a React ops/customer-tracking frontend.
 
 ## Stack
 
-Python, FastAPI, SQLAlchemy 2.x (ORM), Alembic, Pydantic, PostgreSQL (production),
-SQLite (tests — no PostgreSQL or Docker required to run the test suite), pytest, uv.
+**Backend:** Python, FastAPI, SQLAlchemy 2.x (ORM), Alembic, Pydantic, PostgreSQL
+(production), SQLite (tests — no PostgreSQL or Docker required to run the test suite),
+pytest, uv.
+
+**Frontend:** React, TypeScript, Vite, Tailwind CSS v4, shadcn/ui (Radix primitives),
+Phosphor icons, React Router.
 
 ## Project layout
 
@@ -29,6 +31,21 @@ backend/
 ├── alembic/versions/         one initial migration
 ├── seeds/seed.py              idempotent demo data
 └── tests/                     pytest suite (SQLite, no external DB needed)
+
+frontend/
+├── src/
+│   ├── main.tsx / App.tsx      entry point, ThemeProvider, router
+│   ├── index.css                design tokens (colors, fonts) as CSS variables
+│   ├── lib/
+│   │   ├── api/                 typed fetch client mirroring the backend schemas
+│   │   └── format.ts            money/date formatting helpers
+│   ├── hooks/                   useStages (canonical stage order/labels), useAsync
+│   ├── components/
+│   │   ├── ui/                   shadcn/ui primitives
+│   │   ├── layout/                OpsShell (staff nav) / PublicShell (tracking page)
+│   │   ├── shared/                StageBadge, RiskBadge, StageChecklist, EventTimeline, ...
+│   │   └── quotes/                InquiryForm, QuoteBreakdown
+│   └── pages/                    ShipmentListPage, ShipmentDetailPage, QuoteFlowPage, TrackingPage
 ```
 
 ## Local setup
@@ -86,6 +103,46 @@ Docker needed:
 ```bash
 uv run pytest -q
 ```
+
+## Frontend setup
+
+Requires Node.js 20+.
+
+```bash
+cd frontend
+npm install
+npm run dev       # starts Vite on http://localhost:5173
+```
+
+The dev server proxies `/api/*` to `http://localhost:8000` (see `vite.config.ts`), so run
+the backend (`uv run uvicorn app.main:app --reload`, seeded per above) alongside it — no
+CORS configuration needed in dev. For a non-dev deployment, set `VITE_API_BASE_URL` to the
+backend's URL.
+
+- `npm run build` — type-checks (`tsc -b`) and produces a production bundle in `dist/`.
+- `npm run lint` — oxlint.
+
+### Pages
+
+- `/shipments` — ops dashboard: every shipment, filterable by stage / at-risk / mode.
+- `/shipments/:id` — shipment detail: status history, advance-to-next-stage, the
+  status-correction dialog, at-risk toggle, and reference management.
+- `/quotes/new` → `/quotes/:id` — pick or create a customer, enter the inquiry, generate a
+  quote, override line items while in draft, then send/accept. Accepting shows the
+  generated job number and links straight to the new shipment.
+- `/track` → `/track/:reference` — the public, unauthenticated customer view. Looks up by
+  job number or any reference (MAWB/HAWB/MBL/HBL/container) and renders only what
+  `GET /tracking/{reference}` returns — no pricing, no internal notes, no risk reason ever
+  reaches this page, by construction on the backend.
+
+### Design system
+
+Colors, spacing, and typography are CSS variables in `src/index.css` (light + dark, both
+WCAG AA-checked) — a professional navy/slate palette with semantic status colors
+(job progress = blue, delivered = green, at-risk = amber), Lexend for headings and Source
+Sans 3 for body text. The stage order and human-readable labels are fetched once from
+`GET /meta/stages` (`useStages` hook) and never hardcoded in a component — the backend's
+`app/models/enums.py` is still the single source of truth for that mapping.
 
 ## API overview
 
@@ -187,7 +244,7 @@ path as any other stage change.
 
 ## What's out of scope for this MVP
 
-React frontend (a follow-up), authentication/RBAC, predictive ETA, AI pricing or
-shipment prediction, GPS/IoT, live WeBOC/PSW integration, ShipsGo/carrier API
-integration, multi-carrier RFQ automation, live spot-rate feeds, accounting/ERP,
+Authentication/RBAC (the frontend has no login; `current_actor` is a stand-in), predictive
+ETA, AI pricing or shipment prediction, GPS/IoT, live WeBOC/PSW integration, ShipsGo/carrier
+API integration, multi-carrier RFQ automation, live spot-rate feeds, accounting/ERP,
 invoicing, payments, microservices, event buses, Redis, Celery, Kubernetes.
