@@ -6,7 +6,7 @@ from app.errors import InvalidCorrection, InvalidTransition
 from app.models.enums import EventSource, ShipmentStage
 from app.services.quotes import accept_quote, generate_quote
 from app.services.transitions import advance_stage, correct_stage
-from tests.factories import make_customer, make_inquiry, simple_rate_card
+from tests.factories import make_area, make_customer, make_inquiry, make_worker, simple_rate_card
 
 TODAY = date(2026, 6, 1)
 
@@ -121,11 +121,18 @@ def test_correction_blank_reason_rejected(db_session):
 
 
 # --- server-controlled event source (API layer) ---
+#
+# Normal advancement is worker-only now (no ops "advance to next stage"
+# endpoint exists — see app.api.shipments) so this is exercised against the
+# worker portal's complete endpoint, the only remaining path a caller could
+# try to spoof `source` through.
 
 
-def test_caller_cannot_spoof_event_source_via_manual_status_update(client, db_session):
+def test_caller_cannot_spoof_event_source_via_worker_complete(client, db_session):
     customer = make_customer(db_session)
     simple_rate_card(db_session)
+    docs_area = make_area(db_session, ShipmentStage.DOCS_FILED)
+    make_worker(db_session, docs_area, username="ali.docs", password="Correct123!")
     db_session.commit()  # visible to the client's own session (shared in-memory engine)
 
     r = client.post(
@@ -146,11 +153,18 @@ def test_caller_cannot_spoof_event_source_via_manual_status_update(client, db_se
     assert r.status_code == 200, r.text
     shipment_id = r.json()["id"]
 
+    login = client.post("/auth/login", json={"username": "ali.docs", "password": "Correct123!"})
+    assert login.status_code == 200, login.text
+    token = login.json()["access_token"]
+
     r = client.post(
-        f"/shipments/{shipment_id}/status",
-        json={"stage": "docs_filed", "note": "filed", "source": "correction"},
+        f"/worker/shipments/{shipment_id}/complete",
+        json={"note": "filed", "source": "correction"},
+        headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200, r.text
-    events = r.json()["status_events"]
-    docs_event = next(e for e in events if e["stage"] == "docs_filed")
+
+    check = client.get(f"/shipments/{shipment_id}")
+    docs_event = next(e for e in check.json()["status_events"] if e["stage"] == "docs_filed")
     assert docs_event["source"] == "manual", "a client-supplied 'source' field must never override the server's choice"
+    assert docs_event["actor"] != "correction"

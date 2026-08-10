@@ -5,19 +5,18 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.dependencies import current_actor
 from app.errors import NotFound
-from app.models.enums import EventSource, ShipmentStage, TransportMode
+from app.models.enums import ShipmentStage, TransportMode
 from app.models.inquiry import Inquiry
 from app.models.shipment import Shipment, ShipmentReference
-from app.schemas.shipments import (
-    ReferenceCreateRequest,
-    RiskUpdateRequest,
-    ShipmentRead,
-    StatusCorrectionRequest,
-    StatusUpdateRequest,
-)
-from app.services.transitions import advance_stage, correct_stage, set_risk
+from app.schemas.shipments import ReferenceCreateRequest, RiskUpdateRequest, ShipmentRead, StatusCorrectionRequest
+from app.services.transitions import correct_stage, set_risk
 
 router = APIRouter(prefix="/shipments", tags=["shipments"])
+
+# There is deliberately no ops-facing "advance to next stage" endpoint here.
+# Normal progression belongs to workers, scoped to their area (see
+# app.api.worker_portal) -- ops only fixes mistakes, via correct_status
+# below, and manages risk/references, which are independent of stage.
 
 
 def _get_shipment(db: Session, shipment_id: int) -> Shipment:
@@ -47,18 +46,6 @@ def list_shipments(
 @router.get("/{shipment_id}", response_model=ShipmentRead)
 def get_shipment(shipment_id: int, db: Session = Depends(get_db)) -> Shipment:
     return _get_shipment(db, shipment_id)
-
-
-@router.post("/{shipment_id}/status", response_model=ShipmentRead)
-def update_status(
-    shipment_id: int,
-    payload: StatusUpdateRequest,
-    actor: str = Depends(current_actor),
-    db: Session = Depends(get_db),
-) -> Shipment:
-    shipment = _get_shipment(db, shipment_id)
-    advance_stage(db, shipment, payload.stage, actor=actor, note=payload.note, source=EventSource.MANUAL)
-    return shipment
 
 
 @router.post("/{shipment_id}/status/correct", response_model=ShipmentRead)

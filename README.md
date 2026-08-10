@@ -145,10 +145,10 @@ backend's URL.
 ### Pages
 
 - `/shipments` — ops dashboard: every shipment, filterable by stage / at-risk.
-- `/shipments/:id` — shipment detail: status history, advance-to-next-stage, the
-  status-correction dialog, at-risk toggle, and reference management. Unauthenticated
-  (`current_actor`) — ops retains full override access; see "Worker portal & areas" below
-  for why this isn't the primary way stages get marked anymore.
+- `/shipments/:id` — shipment detail: status history, a read-only "next stage / waiting on
+  which area" indicator, the status-correction dialog (for fixing mistakes only), at-risk
+  toggle, and reference management. There is no "advance to next stage" action here —
+  normal progression is worker-only; see "Worker portal & areas" below.
 - `/quotes/new` → `/quotes/:id` — pick or create a customer, enter the inquiry, generate a
   quote, override line items while in draft, then send/accept. Accepting shows the
   generated job number and links straight to the new shipment.
@@ -182,8 +182,7 @@ POST      /quotes/{id}/accept          transactional, idempotent; creates the Sh
 
 GET       /shipments                   filters: stage, at_risk, mode
 GET       /shipments/{id}
-POST      /shipments/{id}/status               next-stage-only progression
-POST      /shipments/{id}/status/correct       repair path, any operational stage, requires a reason
+POST      /shipments/{id}/status/correct       ops-only repair path, any operational stage, requires a reason
 POST      /shipments/{id}/references
 POST      /shipments/{id}/risk
 
@@ -215,12 +214,14 @@ attempt never permanently consumes a job number sequence value.
 ### Shipment stages
 
 Fixed, ordered enum: `job_opened → docs_filed → picked_up → in_transit →
-customs_clearance → arrived → delivered`. `POST /shipments/{id}/status` only accepts the
-immediate next stage — no skipping ahead, no going backwards. If an operational mistake
-needs correcting, `POST /shipments/{id}/status/correct` can move a shipment to any
-operational stage, but requires a reason and always adds a new event; it never edits or
-deletes history. `StatusEvent` rows are append-only everywhere — there is no endpoint that
-updates or deletes one.
+customs_clearance → arrived → delivered`. Normal progression only ever accepts the
+immediate next stage — no skipping ahead, no going backwards — enforced in
+`services.transitions.advance_stage` and reached only through the worker portal (see
+"Worker portal & areas"). If an operational mistake needs correcting, ops's
+`POST /shipments/{id}/status/correct` can move a shipment to any operational stage, but
+requires a reason and always adds a new event; it never edits or deletes history.
+`StatusEvent` rows are append-only everywhere — there is no endpoint that updates or
+deletes one.
 
 ### At-risk shipments
 
@@ -240,17 +241,19 @@ A worker signs in at `/worker/login` (real username/password — the only part o
 with actual authentication; see `app/security.py` for JWT + bcrypt) and lands on
 `/worker/queue`: every shipment currently sitting one stage before theirs, oldest first.
 Marking one "Done" calls `POST /worker/shipments/{id}/complete`, which is a thin wrapper
-around the same `services.transitions.advance_stage` the ops status-update endpoint uses,
-with the worker's area stage as the fixed target and the worker's name as the actor. That
-reuse is what enforces the restriction — a worker can never advance a shipment into any
-stage but their own, because `advance_stage` already rejects anything that isn't the
-shipment's immediate next stage; there's no separate authorization check to keep in sync.
+around `services.transitions.advance_stage` with the worker's area stage as the fixed
+target and the worker's name as the actor. That reuse is what enforces the restriction —
+a worker can never advance a shipment into any stage but their own, because `advance_stage`
+already rejects anything that isn't the shipment's immediate next stage; there's no
+separate authorization check to keep in sync.
 
-Admins manage accounts at `/workers` (`POST /workers`, `PATCH /workers/{id}` to
-deactivate/reassign) — that side stays unauthenticated like the rest of ops, matching
-`current_actor`. Ops retains the ability to update shipment status directly too (for
-corrections, or if a worker's terminal is down); the worker portal is the intended primary
-path, not the only one.
+Ops has no "advance to next stage" endpoint at all — `POST /shipments/{id}/status` was
+removed; normal progression is worker-only. Ops keeps `POST /shipments/{id}/status/correct`
+(fixing a genuine mistake, any operational stage, reason required) as the one remaining
+way ops can move a shipment's stage, plus risk-flagging and reference management, which are
+independent of stage. Admins manage worker accounts at `/workers` (`POST /workers`,
+`PATCH /workers/{id}` to deactivate/reassign) — that side stays unauthenticated like the
+rest of ops, matching `current_actor`.
 
 ## Air freight only
 

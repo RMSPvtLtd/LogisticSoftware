@@ -56,11 +56,6 @@ class ShipmentRead(BaseModel):
 # app.models.enums.EventSource and app.services.transitions).
 
 
-class StatusUpdateRequest(BaseModel):
-    stage: ShipmentStage
-    note: str | None = None
-
-
 class StatusCorrectionRequest(BaseModel):
     stage: ShipmentStage
     reason: str = Field(min_length=1)

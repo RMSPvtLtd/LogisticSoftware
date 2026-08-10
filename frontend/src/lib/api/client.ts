@@ -102,8 +102,6 @@ export const quotesApi = {
 export const shipmentsApi = {
   list: (filters: ShipmentFilters = {}) => request<Shipment[]>(`/shipments${qs(filters)}`),
   get: (id: number) => request<Shipment>(`/shipments/${id}`),
-  updateStatus: (id: number, stage: string, note?: string) =>
-    request<Shipment>(`/shipments/${id}/status`, { method: "POST", body: JSON.stringify({ stage, note }) }),
   correctStatus: (id: number, stage: string, reason: string) =>
     request<Shipment>(`/shipments/${id}/status/correct`, {
       method: "POST",

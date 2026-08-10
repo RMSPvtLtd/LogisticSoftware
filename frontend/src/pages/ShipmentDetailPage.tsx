@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
-import { ArrowLeft, ArrowRight, PencilSimple, Warning } from "@phosphor-icons/react"
+import { ArrowLeft, PencilSimple, UsersThree, Warning } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { StageBadge } from "@/components/shared/StageBadge"
 import { RiskBadge } from "@/components/shared/RiskBadge"
@@ -25,7 +25,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { useAsync } from "@/hooks/useAsync"
 import { useStages } from "@/hooks/useStages"
-import { customersApi, inquiriesApi, shipmentsApi } from "@/lib/api/client"
+import { areasApi, customersApi, inquiriesApi, shipmentsApi } from "@/lib/api/client"
 import { ApiError } from "@/lib/api/client"
 import { formatDate } from "@/lib/format"
 import type { ReferenceType, ShipmentStage } from "@/lib/api/types"
@@ -93,7 +93,7 @@ export function ShipmentDetailPage() {
         </div>
 
         <div className="flex flex-col gap-6">
-          <AdvanceStageCard shipmentId={s.id} nextStage={nextStage} onDone={shipment.reload} />
+          <NextStageCard nextStage={nextStage} />
           <CorrectionCard shipmentId={s.id} currentStage={s.stage} onDone={shipment.reload} />
           <RiskCard shipmentId={s.id} isAtRisk={s.is_at_risk} riskReason={s.risk_reason} onDone={shipment.reload} />
           <ReferencesCard shipmentId={s.id} references={s.references} onDone={shipment.reload} />
@@ -124,17 +124,13 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function AdvanceStageCard({
-  shipmentId,
-  nextStage,
-  onDone,
-}: {
-  shipmentId: number
-  nextStage: { stage: ShipmentStage; label: string } | null
-  onDone: () => void
-}) {
-  const [note, setNote] = useState("")
-  const [submitting, setSubmitting] = useState(false)
+// Read-only: normal progression is worker-only now, scoped to the area
+// responsible for the shipment's next stage (see the worker portal at
+// /worker/queue). Ops does not advance shipments directly — only corrects
+// mistakes, below.
+function NextStageCard({ nextStage }: { nextStage: { stage: ShipmentStage; label: string } | null }) {
+  const areas = useAsync(() => areasApi.list(), [])
+  const areaName = areas.data?.find((a) => a.stage === nextStage?.stage)?.name
 
   if (!nextStage) {
     return (
@@ -146,37 +142,25 @@ function AdvanceStageCard({
     )
   }
 
-  async function handleAdvance() {
-    setSubmitting(true)
-    try {
-      await shipmentsApi.updateStatus(shipmentId, nextStage!.stage, note.trim() || undefined)
-      toast.success(`Moved to ${nextStage!.label}`)
-      setNote("")
-      onDone()
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Could not update status.")
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Advance status</CardTitle>
+        <CardTitle className="text-base">Next stage</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <p className="text-sm text-muted-foreground">
-          Next stage: <span className="font-medium text-foreground">{nextStage.label}</span>
+      <CardContent>
+        <p className="flex items-start gap-2 text-sm text-muted-foreground">
+          <UsersThree size={18} className="mt-0.5 shrink-0" />
+          <span>
+            <span className="font-medium text-foreground">{nextStage.label}</span> — waiting for a worker
+            {areaName ? (
+              <>
+                {" "}
+                in <span className="font-medium text-foreground">{areaName}</span>
+              </>
+            ) : null}{" "}
+            to mark it done.
+          </span>
         </p>
-        <div className="space-y-1.5">
-          <Label htmlFor="advance-note">Note (optional)</Label>
-          <Textarea id="advance-note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Cargo collected from Lahore warehouse" />
-        </div>
-        <Button onClick={handleAdvance} disabled={submitting} className="w-full gap-1.5">
-          {submitting ? "Updating…" : `Move to ${nextStage.label}`}
-          <ArrowRight size={16} />
-        </Button>
       </CardContent>
     </Card>
   )
