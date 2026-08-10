@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
+import { Airplane } from "@phosphor-icons/react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,9 +12,12 @@ import { Separator } from "@/components/ui/separator"
 import { useAsync } from "@/hooks/useAsync"
 import { customersApi, inquiriesApi, quotesApi } from "@/lib/api/client"
 import { ApiError } from "@/lib/api/client"
-import type { TransportMode } from "@/lib/api/types"
 
 const INCOTERMS = ["EXW", "FOB", "CFR", "DAP", "DDP"] as const
+
+// Raaziq currently only quotes air freight -- the backend's TransportMode
+// still supports sea/road for later, but this form doesn't offer them.
+const MODE = "air" as const
 
 export function InquiryForm() {
   const navigate = useNavigate()
@@ -28,7 +32,6 @@ export function InquiryForm() {
 
   const [origin, setOrigin] = useState("")
   const [destination, setDestination] = useState("")
-  const [mode, setMode] = useState<TransportMode>("air")
   const [cargoType, setCargoType] = useState("")
   const [weightKg, setWeightKg] = useState("")
   const [volumeCbm, setVolumeCbm] = useState("")
@@ -71,7 +74,7 @@ export function InquiryForm() {
         customer_id: resolvedCustomerId,
         origin: origin.trim(),
         destination: destination.trim(),
-        mode,
+        mode: MODE,
         cargo_type: cargoType.trim(),
         weight_kg: weightKg,
         volume_cbm: volumeCbm,
@@ -167,17 +170,11 @@ export function InquiryForm() {
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Field label="Mode" required>
-              <Select value={mode} onValueChange={(v) => setMode(v as TransportMode)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="air">Air</SelectItem>
-                  <SelectItem value="sea">Sea</SelectItem>
-                  <SelectItem value="road">Road</SelectItem>
-                </SelectContent>
-              </Select>
+            <Field label="Mode">
+              <div className="flex h-9 items-center gap-1.5 rounded-lg border border-input bg-muted px-3 text-sm text-muted-foreground">
+                <Airplane size={16} />
+                Air Freight
+              </div>
             </Field>
             <Field label="Cargo type" required>
               <Input value={cargoType} onChange={(e) => setCargoType(e.target.value)} placeholder="e.g. Garments" />

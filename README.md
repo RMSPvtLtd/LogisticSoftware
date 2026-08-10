@@ -1,8 +1,10 @@
 # Raaziq MVP — Freight Quotation Automation + Shipment Tracking
 
-Raaziq MVP: a Pakistan-based freight forwarder's two core workflows — freight quotation
-automation, and shipment tracking across the forwarding lifecycle. A FastAPI backend and
-a React ops/customer-tracking frontend.
+Raaziq MVP: a Pakistan-based air-freight forwarder's two core workflows — freight
+quotation automation, and shipment tracking across the forwarding lifecycle — plus a
+worker portal so warehouse/ops staff mark their own stage done instead of a single admin
+updating everything. A FastAPI backend and a React frontend with three surfaces: the ops
+dashboard, the worker portal, and the public customer tracking page.
 
 ## Stack
 
@@ -22,13 +24,14 @@ backend/
 │   ├── config.py          every tunable business value (markup %, validity days, ...)
 │   ├── db.py               engine, session factory, get_db dependency
 │   ├── errors.py           domain exceptions -> HTTP status mapping
-│   ├── dependencies.py     current_actor (no auth yet; isolated for later)
+│   ├── dependencies.py     current_actor (ops side has no login; isolated for later)
+│   ├── security.py         worker auth: password hashing, JWT, get_current_worker
 │   ├── models/              SQLAlchemy models + the sole owner of stage ordering (enums.py)
 │   ├── schemas/             Pydantic request/response models
-│   ├── services/            business logic: pricing, quotes, transitions, tracking
+│   ├── services/            business logic: pricing, quotes, transitions, tracking, workers
 │   ├── adapters/             TrackingAdapter protocol + MockTrackingAdapter
-│   └── api/                  FastAPI routers
-├── alembic/versions/         one initial migration
+│   └── api/                  FastAPI routers (incl. auth, workers, worker_portal)
+├── alembic/versions/         two migrations (initial schema, worker areas)
 ├── seeds/seed.py              idempotent demo data
 └── tests/                     pytest suite (SQLite, no external DB needed)
 
@@ -39,13 +42,14 @@ frontend/
 │   ├── lib/
 │   │   ├── api/                 typed fetch client mirroring the backend schemas
 │   │   └── format.ts            money/date formatting helpers
-│   ├── hooks/                   useStages (canonical stage order/labels), useAsync
+│   ├── hooks/                   useStages, useAsync, useWorkerAuth (worker login/session)
 │   ├── components/
 │   │   ├── ui/                   shadcn/ui primitives
 │   │   ├── layout/                OpsShell (staff nav) / PublicShell (tracking page)
 │   │   ├── shared/                StageBadge, RiskBadge, StageChecklist, EventTimeline, ...
 │   │   └── quotes/                InquiryForm, QuoteBreakdown
-│   └── pages/                    ShipmentListPage, ShipmentDetailPage, QuoteFlowPage, TrackingPage
+│   └── pages/                    ShipmentListPage, ShipmentDetailPage, QuoteFlowPage,
+│                                  TrackingPage, WorkersAdminPage, WorkerLoginPage, WorkerQueuePage
 ```
 
 ## Local setup
@@ -64,9 +68,12 @@ See `backend/.env.example` for the full list with defaults:
 
 - `DATABASE_URL` — PostgreSQL connection string in production.
 - `DEFAULT_MARKUP_PERCENT`, `QUOTE_VALIDITY_DAYS` — pricing/quoting tunables.
-- `VOLUMETRIC_FACTOR_AIR` / `_SEA` / `_ROAD` — kg-per-CBM dimensional weight factors.
+- `VOLUMETRIC_FACTOR_AIR` / `_SEA` / `_ROAD` — kg-per-CBM dimensional weight factors (sea/road
+  are unused in practice — see "Air freight only" below).
 - `JOB_NUMBER_PREFIX`, `JOB_NUMBER_PADDING` — job number format, e.g. `RAZ-2026-00001`.
 - `CORS_ORIGINS`, `DEFAULT_ACTOR`.
+- `JWT_SECRET_KEY`, `JWT_EXPIRY_MINUTES` — sign/expire worker portal login tokens. **Change
+  `JWT_SECRET_KEY` before deploying anywhere real** — the default is dev-only.
 
 `.env` is never committed (see `.gitignore`).
 
@@ -80,14 +87,27 @@ uv run alembic upgrade head
 
 ### Seed data
 
-Idempotent — safe to run more than once. Seeds three trade lanes (Lahore→Dubai air,
-Karachi→Jebel Ali sea, Lahore→Karachi road), three customers, and three inquiries carried
-to different points in the workflow (a draft quote, an accepted shipment in transit, and
-an accepted shipment marked at risk):
+Idempotent — safe to run more than once. Seeds the Lahore→Dubai air lane, three customers,
+three inquiries carried to different points in the workflow (a draft quote, an accepted
+shipment in transit, and an accepted shipment marked at risk), the six worker areas, and a
+demo worker account per area:
 
 ```bash
 uv run python -m seeds.seed
 ```
+
+**Demo worker logins** (all share the password `Worker123!`):
+
+| Username | Area | Stage they complete |
+|---|---|---|
+| `ayesha.docs` | Documentation | docs_filed |
+| `bilal.pickup` | Pickup | picked_up |
+| `zara.transit` | Transit | in_transit |
+| `omar.customs`, `sana.customs` | Customs | customs_clearance |
+| `hina.arrival` | Arrival | arrived |
+| `faisal.delivery` | Delivery | delivered |
+
+Demo-only credentials for local development — not meant for any real deployment.
 
 ### Run the server
 
@@ -124,12 +144,16 @@ backend's URL.
 
 ### Pages
 
-- `/shipments` — ops dashboard: every shipment, filterable by stage / at-risk / mode.
+- `/shipments` — ops dashboard: every shipment, filterable by stage / at-risk.
 - `/shipments/:id` — shipment detail: status history, advance-to-next-stage, the
-  status-correction dialog, at-risk toggle, and reference management.
+  status-correction dialog, at-risk toggle, and reference management. Unauthenticated
+  (`current_actor`) — ops retains full override access; see "Worker portal & areas" below
+  for why this isn't the primary way stages get marked anymore.
 - `/quotes/new` → `/quotes/:id` — pick or create a customer, enter the inquiry, generate a
   quote, override line items while in draft, then send/accept. Accepting shows the
   generated job number and links straight to the new shipment.
+- `/workers` — admin: create worker accounts, assign them to an area, deactivate accounts.
+- `/worker/login` → `/worker/queue` — the worker portal (real login required; see below).
 - `/track` → `/track/:reference` — the public, unauthenticated customer view. Looks up by
   job number or any reference (MAWB/HAWB/MBL/HBL/container) and renders only what
   `GET /tracking/{reference}` returns — no pricing, no internal notes, no risk reason ever
@@ -165,6 +189,15 @@ POST      /shipments/{id}/risk
 
 GET       /tracking/{reference}        public, customer-safe (job number or any reference)
 GET       /meta/stages                 canonical ordered stages + human-readable labels
+
+POST      /auth/login                  worker login -> bearer token
+GET       /auth/me                     resolve the current token to a worker
+
+GET       /worker/queue                requires a worker token; shipments waiting for their area
+POST      /worker/shipments/{id}/complete   advances the shipment into the worker's area stage
+
+GET       /areas                       admin, unauthenticated (same trust level as ops)
+GET/POST  /workers · PATCH /workers/{id}    admin: create/list/(de)activate worker accounts
 ```
 
 Full request/response shapes are in `app/schemas/`; interactive docs are available at
@@ -194,6 +227,37 @@ updates or deletes one.
 `is_at_risk` / `risk_reason` are independent of stage — there is no `delayed` stage.
 `risk_reason` is internal-only and is never returned by the customer tracking endpoint,
 only the `at_risk` boolean is.
+
+## Worker portal & areas
+
+Each operational stage after `job_opened` (docs_filed, picked_up, in_transit,
+customs_clearance, arrived, delivered) has one **Area** — Documentation, Pickup, Transit,
+Customs, Arrival, Delivery. A **Worker** account belongs to exactly one Area. Any worker in
+an Area can see and act on any shipment waiting for that Area's stage — "anyone in Customs"
+rather than one fixed person per stage, so a warehouse team can share the queue.
+
+A worker signs in at `/worker/login` (real username/password — the only part of the app
+with actual authentication; see `app/security.py` for JWT + bcrypt) and lands on
+`/worker/queue`: every shipment currently sitting one stage before theirs, oldest first.
+Marking one "Done" calls `POST /worker/shipments/{id}/complete`, which is a thin wrapper
+around the same `services.transitions.advance_stage` the ops status-update endpoint uses,
+with the worker's area stage as the fixed target and the worker's name as the actor. That
+reuse is what enforces the restriction — a worker can never advance a shipment into any
+stage but their own, because `advance_stage` already rejects anything that isn't the
+shipment's immediate next stage; there's no separate authorization check to keep in sync.
+
+Admins manage accounts at `/workers` (`POST /workers`, `PATCH /workers/{id}` to
+deactivate/reassign) — that side stays unauthenticated like the rest of ops, matching
+`current_actor`. Ops retains the ability to update shipment status directly too (for
+corrections, or if a worker's terminal is down); the worker portal is the intended primary
+path, not the only one.
+
+## Air freight only
+
+Raaziq currently only forwards air freight. `TransportMode` still has `sea` and `road` in
+the schema (so the data model doesn't need to change if that expands later), but no rate
+card exists for either, the quote form only offers Air, and the ops shipment list has no
+mode filter — there's nothing else to filter by right now.
 
 ## Tracking adapter architecture
 
@@ -244,7 +308,8 @@ path as any other stage change.
 
 ## What's out of scope for this MVP
 
-Authentication/RBAC (the frontend has no login; `current_actor` is a stand-in), predictive
-ETA, AI pricing or shipment prediction, GPS/IoT, live WeBOC/PSW integration, ShipsGo/carrier
-API integration, multi-carrier RFQ automation, live spot-rate feeds, accounting/ERP,
-invoicing, payments, microservices, event buses, Redis, Celery, Kubernetes.
+Ops-side login (still `current_actor`, unauthenticated — only the worker portal has real
+accounts), predictive ETA, AI pricing or shipment prediction, GPS/IoT, live WeBOC/PSW
+integration, ShipsGo/carrier API integration, multi-carrier RFQ automation, live spot-rate
+feeds, accounting/ERP, invoicing, payments, microservices, event buses, Redis, Celery,
+Kubernetes.

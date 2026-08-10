@@ -1,7 +1,13 @@
-"""Idempotent demo data: three trade lanes with multiple rate breaks, three
-customers, and three inquiries carried to different points of the workflow
-(draft quote, accepted + in transit, accepted + at risk) so the whole demo
-flow in the README can be walked without creating anything by hand first.
+"""Idempotent demo data: the Lahore-Dubai air lane with multiple rate
+breaks, three customers, three inquiries carried to different points of the
+workflow (draft quote, accepted + in transit, accepted + at risk), the six
+worker areas (one per operational stage after job_opened), and a demo
+worker account per area, so the whole demo flow in the README can be walked
+without creating anything by hand first.
+
+Sea and road rate cards are not seeded -- this deployment only quotes air
+freight (the TransportMode enum still supports sea/road for later, but no
+lane data exists for them, so they can't be selected in practice).
 
 Safe to run repeatedly: every entity is looked up by a natural key before
 being created, so re-running never duplicates rows. Run with:
@@ -18,10 +24,14 @@ from sqlalchemy.orm import Session
 import app.models as m
 from app.db import SessionLocal
 from app.models.enums import ChargeBasis, ChargeKind, EventSource, ShipmentStage, TransportMode, UnitOfMeasure
+from app.security import hash_password
 from app.services.quotes import accept_quote, generate_quote, send_quote
 from app.services.transitions import advance_stage, set_risk
 
 SEED_TODAY = date(2026, 6, 1)
+
+# Every worker seeded below shares this password. Demo-only -- see README.
+DEMO_WORKER_PASSWORD = "Worker123!"
 
 
 def _get_or_create(session: Session, model, lookup: dict, defaults: dict | None = None):
@@ -109,7 +119,7 @@ def _seed_inquiry(
     return inquiry
 
 
-def _seed_lanes(session: Session) -> None:
+def _seed_lane(session: Session) -> None:
     _seed_rate_card(
         session,
         origin="Lahore",
@@ -135,53 +145,48 @@ def _seed_lanes(session: Session) -> None:
         ],
     )
 
-    _seed_rate_card(
+
+def _seed_areas(session: Session) -> dict[ShipmentStage, m.Area]:
+    definitions = [
+        ("Documentation", ShipmentStage.DOCS_FILED),
+        ("Pickup", ShipmentStage.PICKED_UP),
+        ("Transit", ShipmentStage.IN_TRANSIT),
+        ("Customs", ShipmentStage.CUSTOMS_CLEARANCE),
+        ("Arrival", ShipmentStage.ARRIVED),
+        ("Delivery", ShipmentStage.DELIVERED),
+    ]
+    areas: dict[ShipmentStage, m.Area] = {}
+    for name, stage in definitions:
+        area, _ = _get_or_create(session, m.Area, {"stage": stage}, {"name": name})
+        areas[stage] = area
+    return areas
+
+
+def _seed_worker(session: Session, *, name: str, username: str, area: m.Area) -> None:
+    _get_or_create(
         session,
-        origin="Karachi",
-        destination="Jebel Ali",
-        mode=TransportMode.SEA,
-        carrier="Maersk",
-        currency="USD",
-        minimum_charge=Decimal("150"),
-        breaks=[
-            dict(min_volume=Decimal("0"), max_volume=Decimal("10"), unit=UnitOfMeasure.PER_CBM, rate=Decimal("40.00"), description="0-10 CBM"),
-            dict(min_volume=Decimal("10"), max_volume=Decimal("30"), unit=UnitOfMeasure.PER_CBM, rate=Decimal("34.00"), description="10-30 CBM"),
-            dict(min_volume=Decimal("30"), max_volume=None, unit=UnitOfMeasure.PER_CBM, rate=Decimal("28.00"), description="30+ CBM"),
-        ],
-        charges=[
-            dict(kind=ChargeKind.DOCUMENTATION, description="Documentation fee", basis=ChargeBasis.FLAT, amount=Decimal("60")),
-            dict(kind=ChargeKind.HANDLING, description="Terminal handling", basis=ChargeBasis.FLAT, amount=Decimal("120")),
-            dict(
-                kind=ChargeKind.CUSTOMS,
-                description="Customs clearance (4% of freight)",
-                basis=ChargeBasis.PERCENT_OF_FREIGHT,
-                amount=Decimal("4.00"),
-            ),
-        ],
+        m.Worker,
+        {"username": username},
+        {"name": name, "password_hash": hash_password(DEMO_WORKER_PASSWORD), "area_id": area.id},
     )
 
-    _seed_rate_card(
-        session,
-        origin="Lahore",
-        destination="Karachi",
-        mode=TransportMode.ROAD,
-        carrier="TCS Logistics",
-        currency="PKR",
-        minimum_charge=Decimal("15000"),
-        breaks=[
-            dict(min_weight=Decimal("0"), max_weight=Decimal("1000"), unit=UnitOfMeasure.PER_KG, rate=Decimal("35.00"), description="0-1000kg"),
-            dict(min_weight=Decimal("1000"), max_weight=Decimal("5000"), unit=UnitOfMeasure.PER_KG, rate=Decimal("28.00"), description="1000-5000kg"),
-            dict(min_weight=Decimal("5000"), max_weight=None, unit=UnitOfMeasure.PER_KG, rate=Decimal("22.00"), description="5000kg+"),
-        ],
-        charges=[
-            dict(kind=ChargeKind.DOCUMENTATION, description="Documentation fee", basis=ChargeBasis.FLAT, amount=Decimal("2000")),
-            dict(kind=ChargeKind.PICKUP, description="Origin pickup", basis=ChargeBasis.FLAT, amount=Decimal("3000")),
-        ],
-    )
+
+def _seed_workers(session: Session, areas: dict[ShipmentStage, m.Area]) -> None:
+    _seed_worker(session, name="Ayesha Raza", username="ayesha.docs", area=areas[ShipmentStage.DOCS_FILED])
+    _seed_worker(session, name="Bilal Sheikh", username="bilal.pickup", area=areas[ShipmentStage.PICKED_UP])
+    _seed_worker(session, name="Zara Iqbal", username="zara.transit", area=areas[ShipmentStage.IN_TRANSIT])
+    _seed_worker(session, name="Omar Farooq", username="omar.customs", area=areas[ShipmentStage.CUSTOMS_CLEARANCE])
+    # A second Customs worker to demonstrate that any worker in an area
+    # shares the same queue -- not a one-worker-per-stage restriction.
+    _seed_worker(session, name="Sana Malik", username="sana.customs", area=areas[ShipmentStage.CUSTOMS_CLEARANCE])
+    _seed_worker(session, name="Hina Chaudhry", username="hina.arrival", area=areas[ShipmentStage.ARRIVED])
+    _seed_worker(session, name="Faisal Ahmed", username="faisal.delivery", area=areas[ShipmentStage.DELIVERED])
 
 
 def run(session: Session) -> None:
-    _seed_lanes(session)
+    _seed_lane(session)
+    areas = _seed_areas(session)
+    _seed_workers(session, areas)
 
     bilal = _seed_customer(
         session, name="Bilal Textiles", company_name="Bilal Textiles (Pvt) Ltd",
@@ -202,13 +207,13 @@ def run(session: Session) -> None:
         incoterm="DAP", tag="draft-quote",
     )
     inq_in_transit = _seed_inquiry(
-        session, customer=orient, origin="Karachi", destination="Jebel Ali", mode=TransportMode.SEA,
-        cargo_type="Machinery parts", weight_kg=Decimal("2200"), volume_cbm=Decimal("18"),
+        session, customer=orient, origin="Lahore", destination="Dubai", mode=TransportMode.AIR,
+        cargo_type="Electronics components", weight_kg=Decimal("340"), volume_cbm=Decimal("1.8"),
         incoterm="FOB", tag="accepted-in-transit",
     )
     inq_at_risk = _seed_inquiry(
-        session, customer=hamid, origin="Lahore", destination="Karachi", mode=TransportMode.ROAD,
-        cargo_type="Auto parts", weight_kg=Decimal("3200"), volume_cbm=Decimal("9"),
+        session, customer=hamid, origin="Lahore", destination="Dubai", mode=TransportMode.AIR,
+        cargo_type="Auto parts", weight_kg=Decimal("610"), volume_cbm=Decimal("3.1"),
         incoterm="EXW", tag="accepted-at-risk",
     )
 
@@ -231,11 +236,11 @@ def run(session: Session) -> None:
         )
         advance_stage(
             session, shipment, ShipmentStage.PICKED_UP,
-            actor="seed", note="Container picked up from Karachi warehouse", source=EventSource.MANUAL,
+            actor="seed", note="Cargo picked up from Lahore warehouse", source=EventSource.MANUAL,
         )
         advance_stage(
             session, shipment, ShipmentStage.IN_TRANSIT,
-            actor="seed", note="Vessel departed Karachi port", source=EventSource.MANUAL,
+            actor="seed", note="Flight departed Lahore", source=EventSource.MANUAL,
         )
         session.flush()
 
@@ -249,7 +254,7 @@ def run(session: Session) -> None:
         shipment = accept_quote(session, quote_at_risk.id, "seed", today=SEED_TODAY)
         set_risk(
             session, shipment, is_at_risk=True,
-            risk_reason="Border crossing delayed pending customs documentation", actor="seed",
+            risk_reason="Awaiting updated commercial invoice from shipper", actor="seed",
         )
         session.flush()
 

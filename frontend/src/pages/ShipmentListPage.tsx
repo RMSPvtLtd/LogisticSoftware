@@ -12,16 +12,14 @@ import { useAsync } from "@/hooks/useAsync"
 import { useStages } from "@/hooks/useStages"
 import { customersApi, inquiriesApi, shipmentsApi } from "@/lib/api/client"
 import { formatDateTime } from "@/lib/format"
-import type { ShipmentFilters, ShipmentStage, TransportMode } from "@/lib/api/types"
-
-const MODE_LABEL: Record<TransportMode, string> = { air: "Air", sea: "Sea", road: "Road" }
+import type { ShipmentFilters, ShipmentStage } from "@/lib/api/types"
 
 export function ShipmentListPage() {
   const navigate = useNavigate()
   const { stages } = useStages()
   const [filters, setFilters] = useState<ShipmentFilters>({})
 
-  const shipments = useAsync(() => shipmentsApi.list(filters), [filters.stage, filters.at_risk, filters.mode])
+  const shipments = useAsync(() => shipmentsApi.list(filters), [filters.stage, filters.at_risk])
   const customers = useAsync(() => customersApi.list(), [])
   const inquiries = useAsync(() => inquiriesApi.list(), [])
 
@@ -37,7 +35,7 @@ export function ShipmentListPage() {
   const loading = shipments.loading || customers.loading || inquiries.loading
   const error = shipments.error ?? customers.error ?? inquiries.error
 
-  const hasActiveFilters = filters.stage !== undefined || filters.at_risk !== undefined || filters.mode !== undefined
+  const hasActiveFilters = filters.stage !== undefined || filters.at_risk !== undefined
 
   return (
     <div>
@@ -66,21 +64,6 @@ export function ShipmentListPage() {
                 {s.label}
               </SelectItem>
             ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={filters.mode ?? "all"}
-          onValueChange={(v) => setFilters((f) => ({ ...f, mode: v === "all" ? undefined : (v as TransportMode) }))}
-        >
-          <SelectTrigger className="w-36" aria-label="Filter by mode">
-            <SelectValue placeholder="All modes" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All modes</SelectItem>
-            <SelectItem value="air">Air</SelectItem>
-            <SelectItem value="sea">Sea</SelectItem>
-            <SelectItem value="road">Road</SelectItem>
           </SelectContent>
         </Select>
 
@@ -133,7 +116,6 @@ export function ShipmentListPage() {
                 <TableHead>Job Number</TableHead>
                 <TableHead>Customer</TableHead>
                 <TableHead>Lane</TableHead>
-                <TableHead>Mode</TableHead>
                 <TableHead>Stage</TableHead>
                 <TableHead>Last Updated</TableHead>
                 <TableHead>Risk</TableHead>
@@ -162,7 +144,6 @@ export function ShipmentListPage() {
                     <TableCell className="whitespace-nowrap">
                       {inquiry ? `${inquiry.origin} → ${inquiry.destination}` : "—"}
                     </TableCell>
-                    <TableCell>{inquiry ? MODE_LABEL[inquiry.mode] : "—"}</TableCell>
                     <TableCell>
                       <StageBadge stage={shipment.stage} />
                     </TableCell>

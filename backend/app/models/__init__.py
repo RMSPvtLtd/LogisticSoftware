@@ -13,6 +13,7 @@ from app.models.inquiry import Inquiry
 from app.models.rate_card import RateCard, RateCardBreak, RateCardCharge
 from app.models.quote import Quote, QuoteLineItem
 from app.models.shipment import JobNumberCounter, Shipment, ShipmentReference, StatusEvent
+from app.models.worker import Area, Worker
 
 __all__ = [
     "ChargeBasis",
@@ -34,4 +35,6 @@ __all__ = [
     "Shipment",
     "ShipmentReference",
     "StatusEvent",
+    "Area",
+    "Worker",
 ]

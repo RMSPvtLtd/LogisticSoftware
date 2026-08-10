@@ -179,3 +179,44 @@ export interface StageMeta {
   stage: ShipmentStage
   label: string
 }
+
+// --- worker portal / auth ---
+
+export interface Area {
+  id: number
+  name: string
+  stage: ShipmentStage
+}
+
+export interface Worker {
+  id: number
+  name: string
+  username: string
+  is_active: boolean
+  area: Area
+  created_at: string
+}
+
+export interface WorkerCreate {
+  name: string
+  username: string
+  password: string
+  area_id: number
+}
+
+export interface LoginResponse {
+  access_token: string
+  token_type: string
+  worker: Worker
+}
+
+export interface WorkerQueueItem {
+  id: number
+  job_number: string
+  customer_name: string
+  origin: string
+  destination: string
+  cargo_type: string
+  waiting_since: string
+  last_note: string | null
+}

@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 
-from app.api import customers, inquiries, meta, quotes, shipments, tracking
+from app.api import auth, customers, inquiries, meta, quotes, shipments, tracking, worker_portal, workers
 from app.config import get_settings
 from app.errors import DomainError
 
@@ -42,6 +42,9 @@ def create_app() -> FastAPI:
     app.include_router(shipments.router)
     app.include_router(tracking.router)
     app.include_router(meta.router)
+    app.include_router(auth.router)
+    app.include_router(workers.router)
+    app.include_router(worker_portal.router)
 
     return app
 

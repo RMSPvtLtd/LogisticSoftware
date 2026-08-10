@@ -42,9 +42,15 @@ class Settings(BaseSettings):
     # Browser origins allowed to call the API.
     cors_origins: str = "http://localhost:5173"
 
-    # Actor name recorded on manually-triggered status events until real
-    # authentication replaces the current_actor dependency.
+    # Actor name recorded on manually-triggered ops status events. The ops
+    # side has no login (current_actor dependency); worker accounts (below)
+    # are the only part of the app with real authentication.
     default_actor: str = "ops"
+
+    # Signs worker login tokens (app.security). Override in production --
+    # this default is only safe for local development.
+    jwt_secret_key: str = "dev-only-insecure-secret-change-me"
+    jwt_expiry_minutes: int = 12 * 60
 
     @property
     def cors_origin_list(self) -> list[str]:

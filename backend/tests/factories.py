@@ -7,10 +7,12 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 import app.models as m
-from app.models.enums import ChargeBasis, TransportMode, UnitOfMeasure
+from app.models.enums import ChargeBasis, ShipmentStage, TransportMode, UnitOfMeasure
+from app.security import hash_password
 
 
 def make_customer(session: Session, **overrides) -> m.Customer:
@@ -95,3 +97,29 @@ def simple_rate_card(session: Session, *, rate: Decimal = Decimal("5.00"), **rc_
     rate_card = make_rate_card(session, **rc_overrides)
     add_break(session, rate_card, min_weight=Decimal("0"), max_weight=None, rate=rate)
     return rate_card
+
+
+def make_area(session: Session, stage: ShipmentStage, **overrides) -> m.Area:
+    existing = session.execute(select(m.Area).where(m.Area.stage == stage)).scalar_one_or_none()
+    if existing is not None:
+        return existing
+    defaults = dict(name=f"{stage.value}-area")
+    defaults.update(overrides)
+    area = m.Area(stage=stage, **defaults)
+    session.add(area)
+    session.flush()
+    return area
+
+
+def make_worker(session: Session, area: m.Area, *, password: str = "Worker123!", **overrides) -> m.Worker:
+    defaults = dict(
+        name="Test Worker",
+        username=f"worker-{uuid.uuid4().hex[:10]}",
+        password_hash=hash_password(password),
+        area_id=area.id,
+    )
+    defaults.update(overrides)
+    worker = m.Worker(**defaults)
+    session.add(worker)
+    session.flush()
+    return worker

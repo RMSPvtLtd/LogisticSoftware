@@ -64,3 +64,10 @@ class TrackingIngestionFailed(DomainError):
     shipment (invalid or backwards stage). The shipment is left unchanged."""
 
     http_status = 422
+
+
+class Unauthorized(DomainError):
+    """Missing, invalid, or expired worker credentials/token, or the
+    account is deactivated."""
+
+    http_status = 401

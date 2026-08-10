@@ -4,16 +4,21 @@
 // repeated at every call site.
 
 import type {
+  Area,
   Customer,
   CustomerCreate,
   Inquiry,
   InquiryCreate,
   LineItemOverride,
+  LoginResponse,
   Quote,
   Shipment,
   ShipmentFilters,
   StageMeta,
   TrackingResult,
+  Worker,
+  WorkerCreate,
+  WorkerQueueItem,
 } from "./types"
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api"
@@ -123,4 +128,41 @@ export const trackingApi = {
 
 export const metaApi = {
   stages: () => request<{ stages: StageMeta[] }>("/meta/stages"),
+}
+
+// --- auth (worker portal login) ---
+
+export const authApi = {
+  login: (username: string, password: string) =>
+    request<LoginResponse>("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+  me: (token: string) => request<Worker>("/auth/me", { headers: authHeader(token) }),
+}
+
+// --- worker portal (requires a worker's own bearer token, not an admin call) ---
+
+export const workerPortalApi = {
+  queue: (token: string) => request<WorkerQueueItem[]>("/worker/queue", { headers: authHeader(token) }),
+  complete: (token: string, shipmentId: number, note?: string) =>
+    request<WorkerQueueItem>(`/worker/shipments/${shipmentId}/complete`, {
+      method: "POST",
+      headers: authHeader(token),
+      body: JSON.stringify({ note: note || undefined }),
+    }),
+}
+
+function authHeader(token: string): HeadersInit {
+  return { Authorization: `Bearer ${token}` }
+}
+
+// --- admin: areas + workers (unauthenticated, same trust level as the rest of the ops API) ---
+
+export const areasApi = {
+  list: () => request<Area[]>("/areas"),
+}
+
+export const workersApi = {
+  list: () => request<Worker[]>("/workers"),
+  create: (payload: WorkerCreate) => request<Worker>("/workers", { method: "POST", body: JSON.stringify(payload) }),
+  setActive: (id: number, isActive: boolean) =>
+    request<Worker>(`/workers/${id}`, { method: "PATCH", body: JSON.stringify({ is_active: isActive }) }),
 }

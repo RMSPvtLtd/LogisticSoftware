@@ -74,6 +74,22 @@ def next_stage(stage: ShipmentStage) -> ShipmentStage | None:
     return OPERATIONAL_STAGE_ORDER[idx + 1]
 
 
+def previous_stage(stage: ShipmentStage) -> ShipmentStage | None:
+    """The immediate previous operational stage, or None if `stage` is job_opened
+    (nothing precedes it — a Shipment is created there by quote acceptance,
+    not advanced into it by a worker)."""
+    idx = stage_index(stage)
+    if idx == 0:
+        return None
+    return OPERATIONAL_STAGE_ORDER[idx - 1]
+
+
+# Stages a worker Area can be responsible for producing. job_opened is
+# excluded -- it is created by quote acceptance (services.quotes.accept_quote),
+# never by a worker completing a queue item.
+WORKER_ASSIGNABLE_STAGES: tuple[ShipmentStage, ...] = OPERATIONAL_STAGE_ORDER[1:]
+
+
 class TransportMode(str, Enum):
     AIR = "air"
     SEA = "sea"
