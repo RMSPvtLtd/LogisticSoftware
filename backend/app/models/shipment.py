@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db import Base
 from app.models._mixins import TimestampMixin
 from app.models._types import portable_enum
-from app.models.enums import EventSource, ReferenceType, ShipmentStage
+from app.models.enums import EventSource, ReferenceType, ShipmentStage, TransportMode
 
 
 class Shipment(TimestampMixin, Base):
@@ -18,6 +18,13 @@ class Shipment(TimestampMixin, Base):
     present. `stage` is written only by `services.transitions` (or the
     quote-lifecycle functions that call into it for the two system-driven
     transitions before job_opening).
+
+    `mode` is a denormalized copy of `inquiry.mode`, set once at creation and
+    never changed after — it exists so mode-aware queries (the worker queue,
+    the tracking checklist labels) don't need a join through Inquiry on
+    every read. Inquiry.mode remains the source of truth; this column is
+    always in sync with it because both are written together in
+    `services.inquiries.create_inquiry`.
     """
 
     __tablename__ = "shipment"
@@ -27,6 +34,7 @@ class Shipment(TimestampMixin, Base):
     inquiry_id: Mapped[int] = mapped_column(ForeignKey("inquiry.id"), nullable=False, unique=True)
     quote_id: Mapped[int | None] = mapped_column(ForeignKey("quote.id"), unique=True)
 
+    mode: Mapped[TransportMode] = mapped_column(portable_enum(TransportMode), nullable=False)
     job_number: Mapped[str | None] = mapped_column(String(40), unique=True, index=True)
     stage: Mapped[ShipmentStage] = mapped_column(
         portable_enum(ShipmentStage), nullable=False, default=ShipmentStage.INQUIRY

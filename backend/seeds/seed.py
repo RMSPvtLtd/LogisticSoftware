@@ -6,9 +6,12 @@ Invoice to Customer), the thirteen worker areas (one per worker-assignable
 stage), a demo worker account per area, and a customer portal login for the
 two higher-volume demo customers.
 
-Sea and road rate cards are not seeded -- this deployment only quotes air
-freight (the TransportMode enum still supports sea/road for later, but no
-lane data exists for them, so they can't be selected in practice).
+A Karachi-Jebel Ali sea lane is seeded alongside air, mirroring the air setup
+exactly: one rate card, its own thirteen worker areas/accounts (sea and air
+each get their own area per stage even though both share the same
+ShipmentStage pipeline -- see app.models.worker.Area), and a shipment walked
+partway through the pipeline. Road is still not seeded -- no lane data
+exists for it, so it can't be selected in practice.
 
 Safe to run repeatedly: every entity is looked up by a natural key before
 being created, so re-running never duplicates rows. Run with:
@@ -78,6 +81,42 @@ WORKER_DEFINITIONS: list[tuple[str, str, ShipmentStage]] = [
     ("Hina Chaudhry", "hina.arrival", ShipmentStage.ARRIVAL),
 ]
 
+# Sea mirrors air exactly, stage for stage -- same pipeline, own areas/
+# workers per stage (see app.models.worker.Area: (stage, mode) is the
+# uniqueness key, so air and sea each get their own area on e.g.
+# AIRWAY_BILL without conflicting).
+AREA_DEFINITIONS_SEA: list[tuple[str, ShipmentStage]] = [
+    ("Bill of Lading", ShipmentStage.AIRWAY_BILL),
+    ("GD", ShipmentStage.GD),
+    ("Pickup", ShipmentStage.PICKUP),
+    ("Gate In", ShipmentStage.GATE_IN),
+    ("Shipment Receipt", ShipmentStage.SHIPMENT_RECEIPT),
+    ("Weighment", ShipmentStage.WEIGHMENT),
+    ("Customs Examination", ShipmentStage.CUSTOMS_EXAMINATION),
+    ("Customs Clearance", ShipmentStage.CUSTOMS_CLEARANCE),
+    ("Scanning", ShipmentStage.SCANNING),
+    ("Handover", ShipmentStage.HANDOVER),
+    ("Departure", ShipmentStage.DEPARTURE),
+    ("Transhipment", ShipmentStage.TRANSHIPMENT),
+    ("Arrival", ShipmentStage.ARRIVAL),
+]
+
+WORKER_DEFINITIONS_SEA: list[tuple[str, str, ShipmentStage]] = [
+    ("Waqas Ahmed", "waqas.billoflading", ShipmentStage.AIRWAY_BILL),
+    ("Sadia Karim", "sadia.gd", ShipmentStage.GD),
+    ("Tariq Mehmood", "tariq.pickup", ShipmentStage.PICKUP),
+    ("Imran Sheikh", "imran.gatein", ShipmentStage.GATE_IN),
+    ("Ayesha Baig", "ayesha.receipt", ShipmentStage.SHIPMENT_RECEIPT),
+    ("Faisal Rauf", "faisal.weighment", ShipmentStage.WEIGHMENT),
+    ("Mahnoor Ali", "mahnoor.examination", ShipmentStage.CUSTOMS_EXAMINATION),
+    ("Junaid Qureshi", "junaid.customs", ShipmentStage.CUSTOMS_CLEARANCE),
+    ("Rida Farooqi", "rida.scanning", ShipmentStage.SCANNING),
+    ("Shahzad Naveed", "shahzad.handover", ShipmentStage.HANDOVER),
+    ("Mariam Yaqoob", "mariam.departure", ShipmentStage.DEPARTURE),
+    ("Danish Iqbal", "danish.transhipment", ShipmentStage.TRANSHIPMENT),
+    ("Sobia Rehman", "sobia.arrival", ShipmentStage.ARRIVAL),
+]
+
 
 def _get_or_create(session: Session, model, lookup: dict, defaults: dict | None = None):
     instance = session.execute(select(model).filter_by(**lookup)).scalars().first()
@@ -96,7 +135,7 @@ def _seed_customer(session: Session, *, name: str, company_name: str, email: str
     return customer
 
 
-def _seed_rate_card(session: Session) -> m.RateCard:
+def _seed_air_rate_card(session: Session) -> m.RateCard:
     rate_card, created = _get_or_create(
         session,
         m.RateCard,
@@ -130,9 +169,50 @@ def _seed_rate_card(session: Session) -> m.RateCard:
     return rate_card
 
 
+def _seed_sea_rate_card(session: Session) -> m.RateCard:
+    # Mirrors the air rate card's shape exactly, priced per CBM (the sea
+    # equivalent of air's per-kg breaks) rather than per container -- Raaziq
+    # quotes sea the same weight/volume-based way it quotes air.
+    rate_card, created = _get_or_create(
+        session,
+        m.RateCard,
+        {"origin": "Karachi", "destination": "Jebel Ali", "mode": TransportMode.SEA, "carrier": "Maersk"},
+        {
+            "currency": "USD",
+            "valid_from": date(2020, 1, 1),
+            "valid_until": date(2035, 1, 1),
+            "minimum_charge": Decimal("150"),
+        },
+    )
+    if created:
+        session.add_all(
+            [
+                m.RateCardBreak(rate_card_id=rate_card.id, min_volume=Decimal("0"), max_volume=Decimal("5"), unit=UnitOfMeasure.PER_CBM, rate=Decimal("55.00"), description="0-5 CBM"),
+                m.RateCardBreak(rate_card_id=rate_card.id, min_volume=Decimal("5"), max_volume=Decimal("15"), unit=UnitOfMeasure.PER_CBM, rate=Decimal("45.00"), description="5-15 CBM"),
+                m.RateCardBreak(rate_card_id=rate_card.id, min_volume=Decimal("15"), max_volume=None, unit=UnitOfMeasure.PER_CBM, rate=Decimal("38.00"), description="15 CBM+"),
+            ]
+        )
+        session.add_all(
+            [
+                # BL fee -> DOCUMENTATION, THC -> HANDLING: same ChargeKind
+                # vocabulary as air, no sea-specific kinds needed.
+                m.RateCardCharge(rate_card_id=rate_card.id, kind=ChargeKind.DOCUMENTATION, description="Bill of Lading fee", basis=ChargeBasis.FLAT, amount=Decimal("40")),
+                m.RateCardCharge(rate_card_id=rate_card.id, kind=ChargeKind.HANDLING, description="Terminal handling charge", basis=ChargeBasis.FLAT, amount=Decimal("120")),
+                m.RateCardCharge(rate_card_id=rate_card.id, kind=ChargeKind.PICKUP, description="Origin pickup", basis=ChargeBasis.FLAT, amount=Decimal("90")),
+                m.RateCardCharge(
+                    rate_card_id=rate_card.id, kind=ChargeKind.CUSTOMS, description="Customs clearance (5% of freight)",
+                    basis=ChargeBasis.PERCENT_OF_FREIGHT, amount=Decimal("5.00"),
+                ),
+            ]
+        )
+        session.flush()
+    return rate_card
+
+
 def _seed_inquiry(
     session: Session, *, customer: m.Customer, cargo_type: str, weight_kg: Decimal, volume_cbm: Decimal,
-    incoterm: str, tag: str,
+    incoterm: str, tag: str, mode: TransportMode = TransportMode.AIR,
+    origin: str = "Lahore", destination: str = "Dubai",
 ) -> m.Inquiry:
     # Inquiries have no natural unique key of their own, so the seed tags each
     # one's description to make re-running the script idempotent. Creating an
@@ -143,23 +223,29 @@ def _seed_inquiry(
         return existing
 
     payload = InquiryCreate(
-        customer_id=customer.id, origin="Lahore", destination="Dubai", mode=TransportMode.AIR,
+        customer_id=customer.id, origin=origin, destination=destination, mode=mode,
         cargo_type=cargo_type, weight_kg=weight_kg, volume_cbm=volume_cbm,
         ready_date=SEED_TODAY, incoterm=incoterm, description=description,
     )
     return create_inquiry(session, payload)
 
 
-def _seed_areas(session: Session) -> dict[ShipmentStage, m.Area]:
+def _seed_areas(
+    session: Session, definitions: list[tuple[str, ShipmentStage]], *, mode: TransportMode
+) -> dict[ShipmentStage, m.Area]:
     areas: dict[ShipmentStage, m.Area] = {}
-    for name, stage in AREA_DEFINITIONS:
-        area, _ = _get_or_create(session, m.Area, {"stage": stage}, {"name": name})
+    for name, stage in definitions:
+        area, _ = _get_or_create(session, m.Area, {"stage": stage, "mode": mode}, {"name": name})
         areas[stage] = area
     return areas
 
 
-def _seed_workers(session: Session, areas: dict[ShipmentStage, m.Area]) -> None:
-    for name, username, stage in WORKER_DEFINITIONS:
+def _seed_workers(
+    session: Session,
+    definitions: list[tuple[str, str, ShipmentStage]],
+    areas: dict[ShipmentStage, m.Area],
+) -> None:
+    for name, username, stage in definitions:
         _get_or_create(
             session, m.Worker, {"username": username},
             {"name": name, "password_hash": hash_password(DEMO_WORKER_PASSWORD), "area_id": areas[stage].id},
@@ -180,9 +266,9 @@ def _walk_to(session: Session, shipment: m.Shipment, target: ShipmentStage, acto
 
 
 def run(session: Session) -> None:
-    _seed_rate_card(session)
-    areas = _seed_areas(session)
-    _seed_workers(session, areas)
+    _seed_air_rate_card(session)
+    areas = _seed_areas(session, AREA_DEFINITIONS, mode=TransportMode.AIR)
+    _seed_workers(session, WORKER_DEFINITIONS, areas)
     actor_by_stage = {stage: name for name, _, stage in WORKER_DEFINITIONS}
 
     bilal = _seed_customer(session, name="Bilal Textiles", company_name="Bilal Textiles (Pvt) Ltd", email="ops@bilaltextiles.pk", phone="+92-42-1110001")
@@ -237,6 +323,24 @@ def run(session: Session) -> None:
             session, shipment, ShipmentStage.INVOICE_TO_CUSTOMER,
             actor="ops", note="Invoice sent to customer.", source=EventSource.MANUAL,
         )
+        session.flush()
+
+    # --- Sea freight, mirroring the air demo data above ---
+    _seed_sea_rate_card(session)
+    sea_areas = _seed_areas(session, AREA_DEFINITIONS_SEA, mode=TransportMode.SEA)
+    _seed_workers(session, WORKER_DEFINITIONS_SEA, sea_areas)
+    sea_actor_by_stage = {stage: name for name, _, stage in WORKER_DEFINITIONS_SEA}
+
+    inq_sea_mid = _seed_inquiry(
+        session, customer=orient, cargo_type="Machinery parts", weight_kg=Decimal("2400"), volume_cbm=Decimal("8.5"),
+        incoterm="FOB", tag="sea-mid-port", mode=TransportMode.SEA, origin="Karachi", destination="Jebel Ali",
+    )
+    quote_sea_mid = session.execute(select(m.Quote).where(m.Quote.inquiry_id == inq_sea_mid.id)).scalars().first()
+    if quote_sea_mid is None:
+        quote_sea_mid = generate_quote(session, inq_sea_mid.id, today=SEED_TODAY)
+        send_quote(session, quote_sea_mid.id, today=SEED_TODAY)
+        shipment = accept_quote(session, quote_sea_mid.id, "seed", today=SEED_TODAY)
+        _walk_to(session, shipment, ShipmentStage.CUSTOMS_EXAMINATION, sea_actor_by_stage)
         session.flush()
 
 

@@ -25,7 +25,12 @@ def create_inquiry(session: Session, payload: InquiryCreate) -> Inquiry:
     session.add(inquiry)
     session.flush()  # assigns inquiry.id
 
-    shipment = Shipment(customer_id=inquiry.customer_id, inquiry_id=inquiry.id, stage=ShipmentStage.INQUIRY)
+    shipment = Shipment(
+        customer_id=inquiry.customer_id,
+        inquiry_id=inquiry.id,
+        mode=inquiry.mode,
+        stage=ShipmentStage.INQUIRY,
+    )
     session.add(shipment)
     session.flush()
     shipment.status_events.append(
