@@ -5,13 +5,23 @@
 // never redeclare it).
 
 export type ShipmentStage =
-  | "job_opened"
-  | "docs_filed"
-  | "picked_up"
-  | "in_transit"
+  | "inquiry"
+  | "quotation"
+  | "job_opening"
+  | "airway_bill"
+  | "gd"
+  | "pickup"
+  | "gate_in"
+  | "shipment_receipt"
+  | "weighment"
+  | "customs_examination"
   | "customs_clearance"
-  | "arrived"
-  | "delivered"
+  | "scanning"
+  | "handover"
+  | "departure"
+  | "transhipment"
+  | "arrival"
+  | "invoice_to_customer"
 
 export type TransportMode = "air" | "sea" | "road"
 
@@ -130,8 +140,8 @@ export interface Shipment {
   id: number
   customer_id: number
   inquiry_id: number
-  quote_id: number
-  job_number: string
+  quote_id: number | null
+  job_number: string | null
   stage: ShipmentStage
   is_at_risk: boolean
   risk_reason: string | null
@@ -150,6 +160,7 @@ export interface ShipmentFilters {
 export interface TrackingChecklistItem {
   stage: ShipmentStage
   status: ChecklistStatus
+  timestamp: string | null
 }
 
 export interface TrackingReference {
@@ -164,7 +175,7 @@ export interface TrackingEvent {
 }
 
 export interface TrackingResult {
-  job_number: string
+  job_number: string | null
   origin: string
   destination: string
   mode: TransportMode
@@ -178,6 +189,7 @@ export interface TrackingResult {
 export interface StageMeta {
   stage: ShipmentStage
   label: string
+  group: string | null
 }
 
 // --- worker portal / auth ---

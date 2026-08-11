@@ -11,9 +11,9 @@ from app.models.enums import ShipmentStage
 
 _DEFAULT_CANNED_STATUSES: dict[str, NormalizedStatus] = {
     "ABC123": NormalizedStatus(
-        stage=ShipmentStage.IN_TRANSIT,
+        stage=ShipmentStage.DEPARTURE,
         occurred_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        note="Vessel departed origin port",
+        note="Flight departed origin airport",
         provider_reference="ABC123",
     ),
 }

@@ -115,7 +115,7 @@ export function ShipmentListPage() {
               <TableRow>
                 <TableHead>Job Number</TableHead>
                 <TableHead>Customer</TableHead>
-                <TableHead>Lane</TableHead>
+                <TableHead>Route</TableHead>
                 <TableHead>Stage</TableHead>
                 <TableHead>Last Updated</TableHead>
                 <TableHead>Risk</TableHead>

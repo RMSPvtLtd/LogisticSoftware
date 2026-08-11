@@ -133,7 +133,7 @@ def test_accept_sets_status_and_creates_shipment_with_relationships(db_session):
     assert shipment.customer_id == customer.id
     assert shipment.inquiry_id == inquiry.id
     assert shipment.quote_id == quote.id
-    assert shipment.stage == ShipmentStage.JOB_OPENED
+    assert shipment.stage == ShipmentStage.JOB_OPENING
 
 
 def test_accept_generates_correctly_formatted_job_number(db_session):
@@ -151,13 +151,17 @@ def test_accept_job_number_increments_across_quotes(db_session):
     assert s2.job_number == "RAZ-2026-00002"
 
 
-def test_accept_creates_initial_system_event(db_session):
+def test_accept_creates_initial_job_opening_event(db_session):
     quote = _quote(db_session)
     shipment = accept_quote(db_session, quote.id, "ops", today=TODAY)
 
-    assert len(shipment.status_events) == 1
-    event = shipment.status_events[0]
-    assert event.stage == ShipmentStage.JOB_OPENED
+    # inquiry -> quotation events already exist from create_inquiry /
+    # generate_quote; accept_quote adds the job_opening event on top.
+    assert [e.stage for e in shipment.status_events] == [
+        ShipmentStage.INQUIRY, ShipmentStage.QUOTATION, ShipmentStage.JOB_OPENING,
+    ]
+    event = shipment.status_events[-1]
+    assert event.stage == ShipmentStage.JOB_OPENING
     assert event.source == EventSource.SYSTEM
     assert event.is_stage_change is True
 
@@ -172,7 +176,9 @@ def test_repeated_acceptance_is_idempotent(db_session):
     assert len(shipments) == 1
 
 
-def test_already_accepted_without_shipment_is_rejected(db_session):
+def test_already_accepted_without_job_number_is_rejected(db_session):
+    # Inconsistent state: quote says accepted, but its shipment was never
+    # actually advanced to job_opening (no job_number assigned).
     quote = _quote(db_session)
     quote.status = QuoteStatus.ACCEPTED
     db_session.flush()
@@ -186,17 +192,23 @@ def test_forced_failure_rolls_back_and_preserves_job_number_sequence(db_session,
     simple_rate_card(db_session)
     inquiry = make_inquiry(db_session, customer)
     quote = generate_quote(db_session, inquiry.id, today=TODAY)
-    db_session.commit()  # quote creation is durable, as it would be from a prior request
+    db_session.commit()  # quote + shipment-at-quotation creation is durable, as it would be from a prior request
     quote_id = quote.id
+    shipment_id = inquiry.shipment.id
 
-    with patch("app.services.quotes.StatusEvent", side_effect=RuntimeError("forced failure")):
+    # accept_quote's stage transition happens inside advance_stage
+    # (services.transitions), which is where the StatusEvent for
+    # job_opening actually gets constructed.
+    with patch("app.services.transitions.StatusEvent", side_effect=RuntimeError("forced failure")):
         with pytest.raises(RuntimeError):
             accept_quote(db_session, quote_id, "ops", today=TODAY)
     db_session.rollback()
 
-    reloaded = db_session.get(m.Quote, quote_id)
-    assert reloaded.status == QuoteStatus.DRAFT
-    assert db_session.execute(select(m.Shipment)).scalars().all() == []
+    reloaded_quote = db_session.get(m.Quote, quote_id)
+    assert reloaded_quote.status == QuoteStatus.DRAFT
+    reloaded_shipment = db_session.get(m.Shipment, shipment_id)
+    assert reloaded_shipment.job_number is None
+    assert reloaded_shipment.stage == ShipmentStage.QUOTATION
     counters = db_session.execute(select(m.JobNumberCounter)).scalars().all()
     assert counters == [] or counters[0].last_value == 0
 

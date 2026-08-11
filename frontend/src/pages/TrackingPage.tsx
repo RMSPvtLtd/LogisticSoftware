@@ -53,7 +53,7 @@ export function TrackingPage() {
 }
 
 function TrackingResultView({ reference }: { reference: string }) {
-  const { stages } = useStages()
+  const { stages, labelFor } = useStages()
   const result = useAsync(() => trackingApi.track(reference), [reference])
 
   if (result.loading || stages.length === 0) return <LoadingState rows={4} />
@@ -79,7 +79,9 @@ function TrackingResultView({ reference }: { reference: string }) {
   return (
     <div className="mx-auto max-w-xl space-y-6">
       <div className="text-center">
-        <p className="font-heading text-xl font-semibold tabular-nums text-foreground">{r.job_number}</p>
+        <p className="font-heading text-xl font-semibold tabular-nums text-foreground">
+          {r.job_number ?? labelFor(r.stage)}
+        </p>
         <p className="mt-1 text-sm text-muted-foreground">
           {r.origin} → {r.destination} · {MODE_LABEL[r.mode]}
         </p>

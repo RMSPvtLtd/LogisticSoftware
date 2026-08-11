@@ -40,8 +40,8 @@ class ShipmentRead(BaseModel):
     id: int
     customer_id: int
     inquiry_id: int
-    quote_id: int
-    job_number: str
+    quote_id: int | None
+    job_number: str | None
     stage: ShipmentStage
     is_at_risk: bool
     risk_reason: str | None
@@ -59,6 +59,15 @@ class ShipmentRead(BaseModel):
 class StatusCorrectionRequest(BaseModel):
     stage: ShipmentStage
     reason: str = Field(min_length=1)
+
+
+class InvoiceRequest(BaseModel):
+    """Body for the ops-only POST /shipments/{id}/invoice action — the one
+    normal forward transition (arrival -> invoice_to_customer) that isn't
+    owned by a worker area, since invoicing is a finance action rather than
+    a physical location."""
+
+    note: str | None = None
 
 
 class ReferenceCreateRequest(BaseModel):

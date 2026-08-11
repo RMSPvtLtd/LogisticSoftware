@@ -11,6 +11,7 @@ interface StagesContextValue {
   stages: StageMeta[]
   loading: boolean
   labelFor: (stage: ShipmentStage) => string
+  groupFor: (stage: ShipmentStage) => string | null
   indexOf: (stage: ShipmentStage) => number
 }
 
@@ -39,6 +40,7 @@ export function StagesProvider({ children }: { children: ReactNode }) {
     stages,
     loading,
     labelFor: (stage) => stages.find((s) => s.stage === stage)?.label ?? stage,
+    groupFor: (stage) => stages.find((s) => s.stage === stage)?.group ?? null,
     indexOf: (stage) => stages.findIndex((s) => s.stage === stage),
   }
 

@@ -12,7 +12,7 @@ notes are always new rows — this is what keeps shipment history append-only.
 from sqlalchemy.orm import Session
 
 from app.errors import InvalidCorrection, InvalidTransition
-from app.models.enums import EventSource, OPERATIONAL_STAGE_ORDER, ShipmentStage, next_stage
+from app.models.enums import CORRECTABLE_STAGES, EventSource, ShipmentStage, next_stage
 from app.models.shipment import Shipment, StatusEvent
 
 
@@ -58,14 +58,14 @@ def correct_stage(
 ) -> StatusEvent:
     """Repair path: bypasses the next-stage-only rule to fix an operational
     mistake, while still producing a full audit trail entry. Restricted to
-    the operational stage range (job_opened..delivered) — a Shipment only
-    ever exists once a quote is accepted, so `inquiry`/`quoted` are not
-    valid targets for a shipment correction.
+    CORRECTABLE_STAGES (job_opening onward) — correcting a shipment "back"
+    to inquiry or quotation doesn't make operational sense once a job
+    number has been issued.
     """
     if not reason or not reason.strip():
         raise InvalidCorrection("A correction reason is required")
-    if to_stage not in OPERATIONAL_STAGE_ORDER:
-        raise InvalidCorrection(f"{to_stage.value} is not a valid shipment stage")
+    if to_stage not in CORRECTABLE_STAGES:
+        raise InvalidCorrection(f"{to_stage.value} is not a valid correction target")
     if to_stage == shipment.stage:
         raise InvalidCorrection(f"Shipment {shipment.id} is already at stage {to_stage.value}")
 

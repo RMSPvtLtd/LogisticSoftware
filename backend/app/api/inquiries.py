@@ -4,21 +4,16 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.errors import NotFound
-from app.models.customer import Customer
 from app.models.inquiry import Inquiry
 from app.schemas.inquiries import InquiryCreate, InquiryRead
+from app.services.inquiries import create_inquiry as create_inquiry_service
 
 router = APIRouter(prefix="/inquiries", tags=["inquiries"])
 
 
 @router.post("", response_model=InquiryRead, status_code=201)
 def create_inquiry(payload: InquiryCreate, db: Session = Depends(get_db)) -> Inquiry:
-    if db.get(Customer, payload.customer_id) is None:
-        raise NotFound(f"Customer {payload.customer_id} not found")
-    inquiry = Inquiry(**payload.model_dump())
-    db.add(inquiry)
-    db.flush()
-    return inquiry
+    return create_inquiry_service(db, payload)
 
 
 @router.get("", response_model=list[InquiryRead])

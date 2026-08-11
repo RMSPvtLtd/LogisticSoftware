@@ -1,18 +1,36 @@
 import { CheckCircle } from "@phosphor-icons/react"
 import { useStages } from "@/hooks/useStages"
+import { formatDateTime } from "@/lib/format"
 import type { TrackingChecklistItem } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
 
 // Renders the ordered stage progression the tracking API returns --
 // completed / current / upcoming -- as a vertical stepper. Never encodes
 // stage order itself; that comes entirely from `items` (server-supplied)
-// and labels come from useStages.
+// and labels/groups come from useStages. Consecutive items sharing a group
+// (e.g. "Airport": Gate In, Shipment Receipt, ...) get a small section
+// header above them -- the "sub categories" -- purely presentational.
 export function StageChecklist({ items }: { items: TrackingChecklistItem[] }) {
+  const { groupFor } = useStages()
+
   return (
     <ol className="flex flex-col">
-      {items.map((item, i) => (
-        <ChecklistRow key={item.stage} item={item} isLast={i === items.length - 1} />
-      ))}
+      {items.map((item, i) => {
+        const group = groupFor(item.stage)
+        const previousGroup = i > 0 ? groupFor(items[i - 1].stage) : null
+        const showGroupHeader = group !== null && group !== previousGroup
+
+        return (
+          <li key={item.stage} className="flex flex-col">
+            {showGroupHeader && (
+              <p className="mb-1.5 pl-10 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                {group}
+              </p>
+            )}
+            <ChecklistRow item={item} isLast={i === items.length - 1} />
+          </li>
+        )
+      })}
     </ol>
   )
 }
@@ -23,7 +41,7 @@ function ChecklistRow({ item, isLast }: { item: TrackingChecklistItem; isLast: b
   const isCurrent = item.status === "current"
 
   return (
-    <li className="flex gap-3">
+    <div className="flex gap-3">
       <div className="flex flex-col items-center">
         <span
           className={cn(
@@ -45,16 +63,21 @@ function ChecklistRow({ item, isLast }: { item: TrackingChecklistItem; isLast: b
         )}
       </div>
       <div className={cn("pb-6", isLast && "pb-0")}>
-        <p
-          className={cn(
-            "text-sm font-medium",
-            isCurrent ? "text-foreground" : isCompleted ? "text-foreground" : "text-muted-foreground",
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <p
+            className={cn(
+              "text-sm font-medium",
+              isCurrent ? "text-foreground" : isCompleted ? "text-foreground" : "text-muted-foreground",
+            )}
+          >
+            {labelFor(item.stage)}
+          </p>
+          {item.timestamp && (
+            <p className="text-xs text-muted-foreground tabular-nums">{formatDateTime(item.timestamp)}</p>
           )}
-        >
-          {labelFor(item.stage)}
-        </p>
+        </div>
         {isCurrent && <p className="text-xs text-status-info">Current status</p>}
       </div>
-    </li>
+    </div>
   )
 }

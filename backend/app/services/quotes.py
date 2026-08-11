@@ -27,9 +27,10 @@ from app.errors import InvalidQuoteState, NotFound, QuoteExpired
 from app.models.enums import EventSource, QuoteStatus, ReferenceType, ShipmentStage
 from app.models.inquiry import Inquiry
 from app.models.quote import Quote, QuoteLineItem
-from app.models.shipment import Shipment, ShipmentReference, StatusEvent
+from app.models.shipment import Shipment, ShipmentReference
 from app.services.pricing import price_inquiry
 from app.services.shipments import allocate_job_number
+from app.services.transitions import advance_stage
 
 CENTS = Decimal("0.01")
 
@@ -68,6 +69,10 @@ def generate_quote(session: Session, inquiry_id: int, *, today: date | None = No
     inquiry = session.get(Inquiry, inquiry_id)
     if inquiry is None:
         raise NotFound(f"Inquiry {inquiry_id} not found")
+    if inquiry.shipment is None:
+        # Every Inquiry gets a Shipment row at creation (services.inquiries) --
+        # this would only be missing for data created before that existed.
+        raise NotFound(f"Inquiry {inquiry_id} has no tracking record")
 
     settings = get_settings()
     priced = price_inquiry(session, inquiry, today=today)
@@ -94,6 +99,18 @@ def generate_quote(session: Session, inquiry_id: int, *, today: date | None = No
     recalculate_totals(quote)
 
     session.add(quote)
+    session.flush()
+
+    shipment = inquiry.shipment
+    shipment.quote_id = quote.id
+    if shipment.stage == ShipmentStage.INQUIRY:
+        # First quote for this inquiry -> advance the tracking record.
+        # Re-quoting later (e.g. the previous quote expired unaccepted)
+        # just repoints quote_id above without moving the stage again.
+        advance_stage(
+            session, shipment, ShipmentStage.QUOTATION,
+            actor="system", note=f"Quote #{quote.id} generated.", source=EventSource.SYSTEM,
+        )
     session.flush()
     return quote
 
@@ -148,7 +165,13 @@ def accept_quote(session: Session, quote_id: int, actor: str, *, today: date | N
     expired or inconsistent quote. Does not commit — the caller's
     transaction boundary decides when this becomes durable, which is what
     lets a failure anywhere in this function roll back the quote status
-    change, the job number counter increment, and the shipment together.
+    change, the job number counter increment, and the shipment stage
+    transition together.
+
+    The Shipment already exists (created with the Inquiry — see
+    services.inquiries.create_inquiry) and was moved to QUOTATION when this
+    quote was generated; accepting advances that same row to JOB_OPENING and
+    assigns its job number, rather than creating a new row.
     """
     today = today or date.today()
 
@@ -161,47 +184,42 @@ def accept_quote(session: Session, quote_id: int, actor: str, *, today: date | N
     if quote is None:
         raise NotFound(f"Quote {quote_id} not found")
 
-    existing_shipment = session.execute(
-        select(Shipment).where(Shipment.quote_id == quote.id)
+    shipment = session.execute(
+        select(Shipment).where(Shipment.inquiry_id == quote.inquiry_id)
     ).scalar_one_or_none()
-    if existing_shipment is not None:
-        # Idempotent: a quote already accepted (with its shipment intact)
-        # returns that shipment rather than creating a second one.
-        return existing_shipment
+    if shipment is None:
+        raise NotFound(f"Inquiry {quote.inquiry_id} has no tracking record")
+
+    if shipment.job_number is not None:
+        # Idempotent: a quote already accepted (job number already assigned)
+        # returns the existing shipment rather than re-processing.
+        if shipment.quote_id == quote.id:
+            return shipment
+        raise InvalidQuoteState(
+            f"Inquiry {quote.inquiry_id} already has an open job from a different quote"
+        )
 
     _apply_lazy_expiry(quote, today)
 
     if quote.status == QuoteStatus.EXPIRED:
         raise QuoteExpired(f"Quote {quote.id} expired on {quote.valid_until}")
     if quote.status == QuoteStatus.ACCEPTED:
-        # status=accepted but no shipment was found above: an inconsistent
-        # state that must be rejected rather than silently opening a second job.
-        raise InvalidQuoteState(f"Quote {quote.id} is already accepted but has no shipment")
+        # status=accepted but the shipment has no job number: an inconsistent
+        # state that must be rejected rather than silently opening a job.
+        raise InvalidQuoteState(f"Quote {quote.id} is already accepted but its shipment has no job number")
     if quote.status not in (QuoteStatus.DRAFT, QuoteStatus.SENT):
         raise InvalidQuoteState(f"Quote {quote.id} cannot be accepted from status {quote.status.value}")
 
     quote.status = QuoteStatus.ACCEPTED
 
     job_number = allocate_job_number(session, today.year)
-    shipment = Shipment(
-        customer_id=quote.inquiry.customer_id,
-        inquiry_id=quote.inquiry_id,
-        quote_id=quote.id,
-        job_number=job_number,
-        stage=ShipmentStage.JOB_OPENED,
-    )
-    session.add(shipment)
-    session.flush()  # assigns shipment.id for the reference/event below
+    shipment.quote_id = quote.id
+    shipment.job_number = job_number
 
-    shipment.references.append(ShipmentReference(type=ReferenceType.JOB_NUMBER, value=job_number))
-    shipment.status_events.append(
-        StatusEvent(
-            stage=ShipmentStage.JOB_OPENED,
-            actor=actor,
-            note="Job opened from accepted quote.",
-            source=EventSource.SYSTEM,
-            is_stage_change=True,
-        )
+    advance_stage(
+        session, shipment, ShipmentStage.JOB_OPENING,
+        actor=actor, note="Job opened from accepted quote.", source=EventSource.SYSTEM,
     )
+    shipment.references.append(ShipmentReference(type=ReferenceType.JOB_NUMBER, value=job_number))
     session.flush()
     return shipment

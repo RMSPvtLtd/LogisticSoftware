@@ -23,6 +23,10 @@ ChecklistStatus = Literal["completed", "current", "upcoming"]
 class TrackingChecklistItem(BaseModel):
     stage: ShipmentStage
     status: ChecklistStatus
+    # When the shipment entered this stage (the most recent such event, if
+    # it was corrected through more than once). None for stages not yet
+    # reached.
+    timestamp: datetime | None
 
 
 class TrackingReference(BaseModel):
@@ -37,7 +41,7 @@ class TrackingEvent(BaseModel):
 
 
 class TrackingResult(BaseModel):
-    job_number: str
+    job_number: str | None
     origin: str
     destination: str
     mode: TransportMode
@@ -48,8 +52,16 @@ class TrackingResult(BaseModel):
     at_risk: bool
 
 
-def _build_checklist(current_stage: ShipmentStage) -> list[TrackingChecklistItem]:
-    current_position = stage_index(current_stage)
+def _build_checklist(shipment: Shipment) -> list[TrackingChecklistItem]:
+    current_position = stage_index(shipment.stage)
+
+    # Most recent stage-change event per stage wins, in case a correction
+    # revisited the same stage value more than once.
+    entered_at: dict[ShipmentStage, datetime] = {}
+    for event in shipment.status_events:
+        if event.is_stage_change:
+            entered_at[event.stage] = event.timestamp
+
     items = []
     for stage in OPERATIONAL_STAGE_ORDER:
         position = stage_index(stage)
@@ -59,7 +71,7 @@ def _build_checklist(current_stage: ShipmentStage) -> list[TrackingChecklistItem
             status = "current"
         else:
             status = "upcoming"
-        items.append(TrackingChecklistItem(stage=stage, status=status))
+        items.append(TrackingChecklistItem(stage=stage, status=status, timestamp=entered_at.get(stage)))
     return items
 
 
@@ -85,7 +97,7 @@ def from_shipment(shipment: Shipment) -> TrackingResult:
         destination=shipment.inquiry.destination,
         mode=shipment.inquiry.mode,
         stage=shipment.stage,
-        checklist=_build_checklist(shipment.stage),
+        checklist=_build_checklist(shipment),
         status_history=history,
         references=references,
         at_risk=shipment.is_at_risk,

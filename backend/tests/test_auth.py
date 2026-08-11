@@ -7,7 +7,7 @@ from tests.factories import make_area, make_worker
 
 
 def test_authenticate_worker_success(db_session):
-    area = make_area(db_session, ShipmentStage.DOCS_FILED)
+    area = make_area(db_session, ShipmentStage.AIRWAY_BILL)
     worker = make_worker(db_session, area, username="ali.docs", password="Correct123!")
 
     authenticated = authenticate_worker(db_session, "ali.docs", "Correct123!")
@@ -15,7 +15,7 @@ def test_authenticate_worker_success(db_session):
 
 
 def test_authenticate_worker_wrong_password(db_session):
-    area = make_area(db_session, ShipmentStage.DOCS_FILED)
+    area = make_area(db_session, ShipmentStage.AIRWAY_BILL)
     make_worker(db_session, area, username="ali.docs", password="Correct123!")
 
     with pytest.raises(Unauthorized):
@@ -28,7 +28,7 @@ def test_authenticate_worker_unknown_username(db_session):
 
 
 def test_authenticate_inactive_worker_rejected(db_session):
-    area = make_area(db_session, ShipmentStage.DOCS_FILED)
+    area = make_area(db_session, ShipmentStage.AIRWAY_BILL)
     make_worker(db_session, area, username="ali.docs", password="Correct123!", is_active=False)
 
     with pytest.raises(Unauthorized):
@@ -55,7 +55,7 @@ def test_login_endpoint_returns_token_and_worker(client, db_session):
 
 
 def test_login_wrong_password_returns_401(client, db_session):
-    area = make_area(db_session, ShipmentStage.DOCS_FILED)
+    area = make_area(db_session, ShipmentStage.AIRWAY_BILL)
     make_worker(db_session, area, username="ali.docs", password="Correct123!")
     db_session.commit()
 
@@ -64,7 +64,7 @@ def test_login_wrong_password_returns_401(client, db_session):
 
 
 def test_me_requires_valid_token(client, db_session):
-    area = make_area(db_session, ShipmentStage.DOCS_FILED)
+    area = make_area(db_session, ShipmentStage.AIRWAY_BILL)
     make_worker(db_session, area, username="ali.docs", password="Correct123!")
     db_session.commit()
 

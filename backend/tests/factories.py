@@ -12,7 +12,9 @@ from sqlalchemy.orm import Session
 
 import app.models as m
 from app.models.enums import ChargeBasis, ShipmentStage, TransportMode, UnitOfMeasure
+from app.schemas.inquiries import InquiryCreate
 from app.security import hash_password
+from app.services.inquiries import create_inquiry
 
 
 def make_customer(session: Session, **overrides) -> m.Customer:
@@ -73,6 +75,10 @@ def add_charge(session: Session, rate_card: m.RateCard, **kwargs) -> m.RateCardC
 
 
 def make_inquiry(session: Session, customer: m.Customer, **overrides) -> m.Inquiry:
+    """Goes through the real create_inquiry service (not a raw insert) so
+    the Shipment tracking row that must exist alongside every Inquiry is
+    always created too — the same thing the API does.
+    """
     defaults = dict(
         origin="Lahore",
         destination="Dubai",
@@ -83,10 +89,8 @@ def make_inquiry(session: Session, customer: m.Customer, **overrides) -> m.Inqui
         incoterm="DAP",
     )
     defaults.update(overrides)
-    inquiry = m.Inquiry(customer_id=customer.id, **defaults)
-    session.add(inquiry)
-    session.flush()
-    return inquiry
+    payload = InquiryCreate(customer_id=customer.id, **defaults)
+    return create_inquiry(session, payload)
 
 
 def simple_rate_card(session: Session, *, rate: Decimal = Decimal("5.00"), **rc_overrides) -> m.RateCard:

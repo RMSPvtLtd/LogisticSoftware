@@ -84,31 +84,48 @@ def test_ambiguous_reference_raises_conflict_not_arbitrary_pick(db_session):
 
 def test_checklist_states_for_mid_lifecycle_shipment(db_session):
     shipment = _accepted_shipment(db_session)
-    advance_stage(db_session, shipment, ShipmentStage.DOCS_FILED, actor="ops", note=None, source=EventSource.MANUAL)
-    advance_stage(db_session, shipment, ShipmentStage.PICKED_UP, actor="ops", note=None, source=EventSource.MANUAL)
-    advance_stage(db_session, shipment, ShipmentStage.IN_TRANSIT, actor="ops", note="departed", source=EventSource.MANUAL)
+    advance_stage(db_session, shipment, ShipmentStage.AIRWAY_BILL, actor="ops", note=None, source=EventSource.MANUAL)
+    advance_stage(db_session, shipment, ShipmentStage.GD, actor="ops", note=None, source=EventSource.MANUAL)
+    advance_stage(db_session, shipment, ShipmentStage.PICKUP, actor="ops", note="picked up", source=EventSource.MANUAL)
 
     result = from_shipment(shipment)
     statuses = {item.stage: item.status for item in result.checklist}
 
-    assert statuses[ShipmentStage.JOB_OPENED] == "completed"
-    assert statuses[ShipmentStage.DOCS_FILED] == "completed"
-    assert statuses[ShipmentStage.PICKED_UP] == "completed"
-    assert statuses[ShipmentStage.IN_TRANSIT] == "current"
-    assert statuses[ShipmentStage.CUSTOMS_CLEARANCE] == "upcoming"
-    assert statuses[ShipmentStage.ARRIVED] == "upcoming"
-    assert statuses[ShipmentStage.DELIVERED] == "upcoming"
+    assert statuses[ShipmentStage.INQUIRY] == "completed"
+    assert statuses[ShipmentStage.QUOTATION] == "completed"
+    assert statuses[ShipmentStage.JOB_OPENING] == "completed"
+    assert statuses[ShipmentStage.AIRWAY_BILL] == "completed"
+    assert statuses[ShipmentStage.GD] == "completed"
+    assert statuses[ShipmentStage.PICKUP] == "current"
+    assert statuses[ShipmentStage.GATE_IN] == "upcoming"
+    assert statuses[ShipmentStage.INVOICE_TO_CUSTOMER] == "upcoming"
+
+
+def test_checklist_items_carry_a_completion_timestamp(db_session):
+    shipment = _accepted_shipment(db_session)
+    advance_stage(db_session, shipment, ShipmentStage.AIRWAY_BILL, actor="ops", note=None, source=EventSource.MANUAL)
+
+    result = from_shipment(shipment)
+    by_stage = {item.stage: item for item in result.checklist}
+
+    assert by_stage[ShipmentStage.INQUIRY].timestamp is not None
+    assert by_stage[ShipmentStage.JOB_OPENING].timestamp is not None
+    assert by_stage[ShipmentStage.AIRWAY_BILL].timestamp is not None  # current stage
+    assert by_stage[ShipmentStage.GD].timestamp is None  # not reached yet
+    assert by_stage[ShipmentStage.INQUIRY].timestamp <= by_stage[ShipmentStage.JOB_OPENING].timestamp
+    assert by_stage[ShipmentStage.JOB_OPENING].timestamp <= by_stage[ShipmentStage.AIRWAY_BILL].timestamp
 
 
 def test_history_is_complete_and_chronological(db_session):
     shipment = _accepted_shipment(db_session)
-    advance_stage(db_session, shipment, ShipmentStage.DOCS_FILED, actor="ops", note="a", source=EventSource.MANUAL)
-    advance_stage(db_session, shipment, ShipmentStage.PICKED_UP, actor="ops", note="b", source=EventSource.MANUAL)
+    advance_stage(db_session, shipment, ShipmentStage.AIRWAY_BILL, actor="ops", note="a", source=EventSource.MANUAL)
+    advance_stage(db_session, shipment, ShipmentStage.GD, actor="ops", note="b", source=EventSource.MANUAL)
 
     result = from_shipment(shipment)
 
     assert [e.stage for e in result.status_history] == [
-        ShipmentStage.JOB_OPENED, ShipmentStage.DOCS_FILED, ShipmentStage.PICKED_UP,
+        ShipmentStage.INQUIRY, ShipmentStage.QUOTATION, ShipmentStage.JOB_OPENING,
+        ShipmentStage.AIRWAY_BILL, ShipmentStage.GD,
     ]
     assert result.status_history == sorted(result.status_history, key=lambda e: e.timestamp)
 

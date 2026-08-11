@@ -31,7 +31,7 @@ backend/
 │   ├── services/            business logic: pricing, quotes, transitions, tracking, workers
 │   ├── adapters/             TrackingAdapter protocol + MockTrackingAdapter
 │   └── api/                  FastAPI routers (incl. auth, workers, worker_portal)
-├── alembic/versions/         two migrations (initial schema, worker areas)
+├── alembic/versions/         three migrations (initial schema, worker areas, 17-stage pipeline)
 ├── seeds/seed.py              idempotent demo data
 └── tests/                     pytest suite (SQLite, no external DB needed)
 
@@ -87,10 +87,11 @@ uv run alembic upgrade head
 
 ### Seed data
 
-Idempotent — safe to run more than once. Seeds the Lahore→Dubai air lane, three customers,
-three inquiries carried to different points in the workflow (a draft quote, an accepted
-shipment in transit, and an accepted shipment marked at risk), the six worker areas, and a
-demo worker account per area:
+Idempotent — safe to run more than once. Seeds the Lahore→Dubai air route, four customers,
+four inquiries carried to different points in the pipeline (a draft quote, a shipment
+walked to Customs Examination, a shipment at Job Opening marked at-risk, and a shipment
+walked all the way to Invoice to Customer), the 13 worker areas, and a demo worker account
+per area:
 
 ```bash
 uv run python -m seeds.seed
@@ -100,14 +101,23 @@ uv run python -m seeds.seed
 
 | Username | Area | Stage they complete |
 |---|---|---|
-| `ayesha.docs` | Documentation | docs_filed |
-| `bilal.pickup` | Pickup | picked_up |
-| `zara.transit` | Transit | in_transit |
-| `omar.customs`, `sana.customs` | Customs | customs_clearance |
-| `hina.arrival` | Arrival | arrived |
-| `faisal.delivery` | Delivery | delivered |
+| `ayesha.airwaybill` | Airway Bill | airway_bill |
+| `usman.gd` | GD | gd |
+| `bilal.pickup` | Pickup | pickup |
+| `kamran.gatein` | Gate In | gate_in |
+| `nadia.receipt` | Shipment Receipt | shipment_receipt |
+| `saad.weighment` | Weighment | weighment |
+| `fatima.examination` | Customs Examination | customs_examination |
+| `omar.customs`, `sana.customs` | Customs Clearance | customs_clearance |
+| `hamza.scanning` | Scanning | scanning |
+| `rabia.handover` | Handover | handover |
+| `zara.departure` | Departure | departure |
+| `adeel.transhipment` | Transhipment | transhipment |
+| `hina.arrival` | Arrival | arrival |
 
 Demo-only credentials for local development — not meant for any real deployment.
+"Invoice to Customer", the final stage, has no worker area — ops marks it directly (see
+"Worker portal & areas" below).
 
 ### Run the server
 
@@ -144,14 +154,18 @@ backend's URL.
 
 ### Pages
 
-- `/shipments` — ops dashboard: every shipment, filterable by stage / at-risk.
+- `/shipments` — ops dashboard: every shipment (from Inquiry onward), filterable by stage /
+  at-risk.
 - `/shipments/:id` — shipment detail: status history, a read-only "next stage / waiting on
   which area" indicator, the status-correction dialog (for fixing mistakes only), at-risk
-  toggle, and reference management. There is no "advance to next stage" action here —
-  normal progression is worker-only; see "Worker portal & areas" below.
-- `/quotes/new` → `/quotes/:id` — pick or create a customer, enter the inquiry, generate a
-  quote, override line items while in draft, then send/accept. Accepting shows the
-  generated job number and links straight to the new shipment.
+  toggle, and reference management. There is no "advance to next stage" action here for
+  worker-owned stages — normal progression is worker-only; see "Worker portal & areas"
+  below. The one exception is the terminal stage: once a shipment reaches Arrival, this
+  page shows a "Mark Invoiced" action instead, since ops (not a worker) handles invoicing.
+- `/quotes/new` → `/quotes/:id` — pick or create a customer, enter the inquiry (which
+  immediately creates a Shipment at the Inquiry stage), generate a quote, override line
+  items while in draft, then send/accept. Accepting allocates the job number and advances
+  the existing shipment to Job Opening.
 - `/workers` — admin: create worker accounts, assign them to an area, deactivate accounts.
 - `/worker/login` → `/worker/queue` — the worker portal (real login required; see below).
 - `/track` → `/track/:reference` — the public, unauthenticated customer view. Looks up by
@@ -172,22 +186,23 @@ Sans 3 for body text. The stage order and human-readable labels are fetched once
 
 ```
 POST/GET  /customers · /customers/{id}
-POST/GET  /inquiries · /inquiries/{id}
+POST/GET  /inquiries · /inquiries/{id}         creating an inquiry also creates its Shipment (stage=inquiry)
 
-POST      /quotes/generate
+POST      /quotes/generate                     advances the shipment inquiry -> quotation
 GET       /quotes · /quotes/{id}
 PATCH     /quotes/{id}/line-items      manual override (draft only)
 POST      /quotes/{id}/send            marks sent only — no email/PDF in this MVP
-POST      /quotes/{id}/accept          transactional, idempotent; creates the Shipment
+POST      /quotes/{id}/accept          transactional, idempotent; allocates job_number, advances -> job_opening
 
 GET       /shipments                   filters: stage, at_risk, mode
 GET       /shipments/{id}
-POST      /shipments/{id}/status/correct       ops-only repair path, any operational stage, requires a reason
+POST      /shipments/{id}/status/correct       ops-only repair path, job_opening or later, requires a reason
+POST      /shipments/{id}/invoice              ops-only; advances arrival -> invoice_to_customer
 POST      /shipments/{id}/references
 POST      /shipments/{id}/risk
 
 GET       /tracking/{reference}        public, customer-safe (job number or any reference)
-GET       /meta/stages                 canonical ordered stages + human-readable labels
+GET       /meta/stages                 canonical ordered stages + human-readable labels + sub-category group
 
 POST      /auth/login                  worker login -> bearer token
 GET       /auth/me                     resolve the current token to a worker
@@ -202,26 +217,50 @@ GET/POST  /workers · PATCH /workers/{id}    admin: create/list/(de)activate wor
 Full request/response shapes are in `app/schemas/`; interactive docs are available at
 `/docs` once the server is running.
 
-### The quote → shipment seam
+### The inquiry → quote → shipment seam
 
-Accepting a quote (`POST /quotes/{id}/accept`) is the one place the two workflows meet.
-It is transactional and idempotent: accepting the same quote twice returns the same
-shipment rather than creating a second one, and if anything fails partway through — job
-number allocation, shipment creation, the initial status event — the entire operation
-(including the job number counter increment) rolls back together. A failed acceptance
-attempt never permanently consumes a job number sequence value.
+A Shipment is created the moment an Inquiry comes in (`POST /inquiries`), starting at the
+`inquiry` stage — there's no separate "shipment doesn't exist yet" period before a quote is
+accepted. `POST /quotes/generate` advances that same shipment to `quotation`; regenerating
+a quote for an inquiry that already has one does not re-advance or duplicate events.
+Accepting a quote (`POST /quotes/{id}/accept`) allocates the job number and advances the
+shipment to `job_opening`. It is transactional and idempotent: accepting the same quote
+twice returns the same shipment rather than creating a second one or reallocating a job
+number, and if anything fails partway through, the entire operation (including the job
+number counter increment) rolls back together. A failed acceptance attempt never
+permanently consumes a job number sequence value.
 
 ### Shipment stages
 
-Fixed, ordered enum: `job_opened → docs_filed → picked_up → in_transit →
-customs_clearance → arrived → delivered`. Normal progression only ever accepts the
-immediate next stage — no skipping ahead, no going backwards — enforced in
-`services.transitions.advance_stage` and reached only through the worker portal (see
-"Worker portal & areas"). If an operational mistake needs correcting, ops's
-`POST /shipments/{id}/status/correct` can move a shipment to any operational stage, but
-requires a reason and always adds a new event; it never edits or deletes history.
-`StatusEvent` rows are append-only everywhere — there is no endpoint that updates or
-deletes one.
+Fixed, ordered, 17-value enum, grouped into the pipeline the business actually walks:
+
+```
+Inquiry → Quotation → Job Opening
+  → Documentation:  Airway Bill → GD → Pickup
+  → Airport:        Gate In → Shipment Receipt → Weighment → Customs Examination
+                     → Customs Clearance → Scanning → Handover
+  → Airline:         Departure → Transhipment → Arrival
+  → Invoice to Customer
+```
+
+`Inquiry`, `Quotation`, and `Job Opening` are system-driven (advanced by the quote flow,
+not a worker). Every stage from `Airway Bill` through `Arrival` is worker-assignable — each
+has its own Area and is marked done by a worker in that area, individually tracked with its
+own timestamp (not a checklist item within a bigger stage). `Invoice to Customer` is the
+one exception: ops marks it directly via `POST /shipments/{id}/invoice`, since invoicing
+isn't a warehouse/operational task. The grouping into Documentation/Airport/Airline is
+purely presentational (`STAGE_GROUPS` in `app/models/enums.py`, surfaced as `group` on
+`GET /meta/stages`) — it does not change the linear progression rule.
+
+Normal progression only ever accepts the immediate next stage — no skipping ahead, no
+going backwards — enforced in `services.transitions.advance_stage`. Every `StatusEvent`
+records when a shipment entered that stage, which is what powers the completion timestamp
+shown next to each stage on both the ops detail page and the public tracking checklist.
+If an operational mistake needs correcting, ops's `POST /shipments/{id}/status/correct` can
+move a shipment to any stage from `job_opening` onward (not `inquiry`/`quotation`, since
+those are system transitions, not worker/ops corrections), but requires a reason and always
+adds a new event; it never edits or deletes history. `StatusEvent` rows are append-only
+everywhere — there is no endpoint that updates or deletes one.
 
 ### At-risk shipments
 
@@ -231,11 +270,11 @@ only the `at_risk` boolean is.
 
 ## Worker portal & areas
 
-Each operational stage after `job_opened` (docs_filed, picked_up, in_transit,
-customs_clearance, arrived, delivered) has one **Area** — Documentation, Pickup, Transit,
-Customs, Arrival, Delivery. A **Worker** account belongs to exactly one Area. Any worker in
-an Area can see and act on any shipment waiting for that Area's stage — "anyone in Customs"
-rather than one fixed person per stage, so a warehouse team can share the queue.
+Each of the 13 worker-assignable stages (Airway Bill through Arrival — see "Shipment
+stages") has exactly one **Area**. A **Worker** account belongs to exactly one Area. Any
+worker in an Area can see and act on any shipment waiting for that Area's stage — "anyone
+in Customs Clearance" rather than one fixed person per stage, so a warehouse team can share
+the queue (the seed data gives Customs Clearance two workers to demonstrate this).
 
 A worker signs in at `/worker/login` (real username/password — the only part of the app
 with actual authentication; see `app/security.py` for JWT + bcrypt) and lands on
@@ -247,11 +286,14 @@ a worker can never advance a shipment into any stage but their own, because `adv
 already rejects anything that isn't the shipment's immediate next stage; there's no
 separate authorization check to keep in sync.
 
-Ops has no "advance to next stage" endpoint at all — `POST /shipments/{id}/status` was
-removed; normal progression is worker-only. Ops keeps `POST /shipments/{id}/status/correct`
-(fixing a genuine mistake, any operational stage, reason required) as the one remaining
-way ops can move a shipment's stage, plus risk-flagging and reference management, which are
-independent of stage. Admins manage worker accounts at `/workers` (`POST /workers`,
+Ops has no "advance to next stage" endpoint for worker-owned stages — normal progression
+through Airway Bill…Arrival is worker-only. The one stage ops does drive directly is the
+last one: once a shipment reaches Arrival, `POST /shipments/{id}/invoice` moves it to
+Invoice to Customer, since invoicing customers isn't a warehouse task and has no worker
+area. Ops also keeps `POST /shipments/{id}/status/correct` (fixing a genuine mistake, any
+stage from `job_opening` onward, reason required) as the one remaining way ops can move a
+shipment's stage backward or sideways, plus risk-flagging and reference management, which
+are independent of stage. Admins manage worker accounts at `/workers` (`POST /workers`,
 `PATCH /workers/{id}` to deactivate/reassign) — that side stays unauthenticated like the
 rest of ops, matching `current_actor`.
 
@@ -314,5 +356,6 @@ path as any other stage change.
 Ops-side login (still `current_actor`, unauthenticated — only the worker portal has real
 accounts), predictive ETA, AI pricing or shipment prediction, GPS/IoT, live WeBOC/PSW
 integration, ShipsGo/carrier API integration, multi-carrier RFQ automation, live spot-rate
-feeds, accounting/ERP, invoicing, payments, microservices, event buses, Redis, Celery,
-Kubernetes.
+feeds, accounting/ERP integration, actual invoice generation/PDF/email (the "Invoice to
+Customer" stage only records that ops sent one — it doesn't produce or send anything
+itself), payments, microservices, event buses, Redis, Celery, Kubernetes.

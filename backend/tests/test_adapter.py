@@ -28,9 +28,9 @@ def test_valid_automated_update_goes_through_transition_service(db_session):
     adapter = MockTrackingAdapter(
         {
             "REF1": NormalizedStatus(
-                stage=ShipmentStage.DOCS_FILED,
+                stage=ShipmentStage.AIRWAY_BILL,
                 occurred_at=datetime(2026, 6, 2, tzinfo=timezone.utc),
-                note="Docs filed by carrier system",
+                note="Airway bill filed by carrier system",
                 provider_reference="REF1",
             )
         }
@@ -40,7 +40,7 @@ def test_valid_automated_update_goes_through_transition_service(db_session):
 
     assert event is not None
     assert event.source == EventSource.AUTOMATED
-    assert shipment.stage == ShipmentStage.DOCS_FILED
+    assert shipment.stage == ShipmentStage.AIRWAY_BILL
 
 
 def test_no_status_from_adapter_is_a_noop(db_session):
@@ -50,17 +50,17 @@ def test_no_status_from_adapter_is_a_noop(db_session):
     result = ingest_adapter_update(db_session, shipment, adapter, "UNKNOWN")
 
     assert result is None
-    assert shipment.stage == ShipmentStage.JOB_OPENED
+    assert shipment.stage == ShipmentStage.JOB_OPENING
 
 
 def test_invalid_stage_from_adapter_does_not_mutate_shipment(db_session):
     shipment = _accepted_shipment(db_session)
-    # Shipment is at job_opened; a provider reporting "delivered" is an
+    # Shipment is at job_opening; a provider reporting "arrival" is an
     # invalid skip-ahead and must be rejected without mutating anything.
     adapter = MockTrackingAdapter(
         {
             "REF2": NormalizedStatus(
-                stage=ShipmentStage.DELIVERED,
+                stage=ShipmentStage.ARRIVAL,
                 occurred_at=datetime(2026, 6, 2, tzinfo=timezone.utc),
                 note="Provider glitch",
                 provider_reference="REF2",
@@ -71,19 +71,19 @@ def test_invalid_stage_from_adapter_does_not_mutate_shipment(db_session):
     with pytest.raises(TrackingIngestionFailed):
         ingest_adapter_update(db_session, shipment, adapter, "REF2")
 
-    assert shipment.stage == ShipmentStage.JOB_OPENED
-    assert len(shipment.status_events) == 1  # only the initial job_opened event
+    assert shipment.stage == ShipmentStage.JOB_OPENING
+    assert len(shipment.status_events) == 3  # inquiry, quotation, job_opening -- no new event added
 
 
 def test_backwards_stage_from_adapter_does_not_mutate_shipment(db_session):
     shipment = _accepted_shipment(db_session)
-    advance_stage(db_session, shipment, ShipmentStage.DOCS_FILED, actor="ops", note=None, source=EventSource.MANUAL)
-    advance_stage(db_session, shipment, ShipmentStage.PICKED_UP, actor="ops", note=None, source=EventSource.MANUAL)
+    advance_stage(db_session, shipment, ShipmentStage.AIRWAY_BILL, actor="ops", note=None, source=EventSource.MANUAL)
+    advance_stage(db_session, shipment, ShipmentStage.GD, actor="ops", note=None, source=EventSource.MANUAL)
 
     adapter = MockTrackingAdapter(
         {
             "REF3": NormalizedStatus(
-                stage=ShipmentStage.DOCS_FILED,
+                stage=ShipmentStage.AIRWAY_BILL,
                 occurred_at=datetime(2026, 6, 2, tzinfo=timezone.utc),
                 note="Stale provider update",
                 provider_reference="REF3",
@@ -94,4 +94,4 @@ def test_backwards_stage_from_adapter_does_not_mutate_shipment(db_session):
     with pytest.raises(TrackingIngestionFailed):
         ingest_adapter_update(db_session, shipment, adapter, "REF3")
 
-    assert shipment.stage == ShipmentStage.PICKED_UP
+    assert shipment.stage == ShipmentStage.GD

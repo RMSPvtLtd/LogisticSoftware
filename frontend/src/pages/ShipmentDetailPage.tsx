@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
-import { ArrowLeft, PencilSimple, UsersThree, Warning } from "@phosphor-icons/react"
+import { ArrowLeft, CheckCircle, PencilSimple, UsersThree, Warning } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { StageBadge } from "@/components/shared/StageBadge"
 import { RiskBadge } from "@/components/shared/RiskBadge"
@@ -68,7 +68,7 @@ export function ShipmentDetailPage() {
       <PageHeader
         title={
           <span className="flex flex-wrap items-center gap-2">
-            {s.job_number}
+            {s.job_number ?? `Inquiry #${s.inquiry_id}`}
             <StageBadge stage={s.stage} />
             {s.is_at_risk && <RiskBadge />}
           </span>
@@ -93,7 +93,7 @@ export function ShipmentDetailPage() {
         </div>
 
         <div className="flex flex-col gap-6">
-          <NextStageCard nextStage={nextStage} />
+          <NextStageCard shipmentId={s.id} nextStage={nextStage} onDone={shipment.reload} />
           <CorrectionCard shipmentId={s.id} currentStage={s.stage} onDone={shipment.reload} />
           <RiskCard shipmentId={s.id} isAtRisk={s.is_at_risk} riskReason={s.risk_reason} onDone={shipment.reload} />
           <ReferencesCard shipmentId={s.id} references={s.references} onDone={shipment.reload} />
@@ -103,7 +103,7 @@ export function ShipmentDetailPage() {
               <CardTitle className="text-base">Shipment info</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <InfoRow label="Job opened" value={formatDate(s.created_at)} />
+              <InfoRow label="Inquiry received" value={formatDate(s.created_at)} />
               <InfoRow label="Last updated" value={formatDate(s.updated_at)} />
               {inquiry.data && <InfoRow label="Cargo" value={inquiry.data.cargo_type} />}
               {inquiry.data && <InfoRow label="Incoterm" value={inquiry.data.incoterm} />}
@@ -124,19 +124,66 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-// Read-only: normal progression is worker-only now, scoped to the area
+// Mostly read-only: normal progression is worker-only, scoped to the area
 // responsible for the shipment's next stage (see the worker portal at
-// /worker/queue). Ops does not advance shipments directly — only corrects
-// mistakes, below.
-function NextStageCard({ nextStage }: { nextStage: { stage: ShipmentStage; label: string } | null }) {
+// /worker/queue). The one exception is the final step, Invoice to Customer
+// — a finance action with no physical location/worker area, so ops marks
+// it directly here, the same way it always could via correction, but as a
+// clean single-purpose action instead.
+function NextStageCard({
+  shipmentId,
+  nextStage,
+  onDone,
+}: {
+  shipmentId: number
+  nextStage: { stage: ShipmentStage; label: string } | null
+  onDone: () => void
+}) {
   const areas = useAsync(() => areasApi.list(), [])
   const areaName = areas.data?.find((a) => a.stage === nextStage?.stage)?.name
+  const [note, setNote] = useState("")
+  const [submitting, setSubmitting] = useState(false)
 
   if (!nextStage) {
     return (
       <Card>
         <CardContent className="flex items-center gap-2 py-4 text-sm text-status-success">
-          <span className="font-medium">Shipment delivered — lifecycle complete.</span>
+          <CheckCircle size={18} weight="fill" />
+          <span className="font-medium">Job complete — invoiced to customer.</span>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (nextStage.stage === "invoice_to_customer") {
+    async function handleInvoice() {
+      setSubmitting(true)
+      try {
+        await shipmentsApi.invoice(shipmentId, note.trim() || undefined)
+        toast.success("Marked as invoiced")
+        onDone()
+      } catch (err) {
+        toast.error(err instanceof ApiError ? err.message : "Could not mark this shipment invoiced.")
+      } finally {
+        setSubmitting(false)
+      }
+    }
+
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Next stage</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Cargo has arrived. <span className="font-medium text-foreground">Invoice to Customer</span> is the
+            final step — ops marks it directly since it isn't tied to a physical location.
+          </p>
+          <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" rows={2} />
+          <Button onClick={handleInvoice} disabled={submitting} className="w-full gap-1.5">
+            <CheckCircle size={16} weight="fill" />
+            {submitting ? "Marking invoiced…" : "Mark Invoiced"}
+          </Button>
         </CardContent>
       </Card>
     )

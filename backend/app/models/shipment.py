@@ -10,30 +10,33 @@ from app.models.enums import EventSource, ReferenceType, ShipmentStage
 
 
 class Shipment(TimestampMixin, Base):
-    """The operational job created when a Quote is accepted. `quote_id` is
-    UNIQUE so one accepted quote can only ever produce one shipment — that
-    constraint, not application logic alone, is what makes acceptance safe
-    under a race. `stage` is written only by `services.transitions` after
-    creation.
+    """The tracking record for one job, created the moment an Inquiry is
+    filed (`services.inquiries.create_inquiry`) — not when a quote is
+    accepted. `quote_id` is set once a quote is generated (and re-pointed if
+    the inquiry is re-quoted) and `job_number` is only assigned once that
+    quote is accepted, both nullable until then; each is UNIQUE when
+    present. `stage` is written only by `services.transitions` (or the
+    quote-lifecycle functions that call into it for the two system-driven
+    transitions before job_opening).
     """
 
     __tablename__ = "shipment"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customer.id"), nullable=False, index=True)
-    inquiry_id: Mapped[int] = mapped_column(ForeignKey("inquiry.id"), nullable=False, index=True)
-    quote_id: Mapped[int] = mapped_column(ForeignKey("quote.id"), nullable=False, unique=True)
+    inquiry_id: Mapped[int] = mapped_column(ForeignKey("inquiry.id"), nullable=False, unique=True)
+    quote_id: Mapped[int | None] = mapped_column(ForeignKey("quote.id"), unique=True)
 
-    job_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    job_number: Mapped[str | None] = mapped_column(String(40), unique=True, index=True)
     stage: Mapped[ShipmentStage] = mapped_column(
-        portable_enum(ShipmentStage), nullable=False, default=ShipmentStage.JOB_OPENED
+        portable_enum(ShipmentStage), nullable=False, default=ShipmentStage.INQUIRY
     )
     is_at_risk: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     risk_reason: Mapped[str | None] = mapped_column(Text)
 
     customer: Mapped["Customer"] = relationship(back_populates="shipments")  # noqa: F821
-    inquiry: Mapped["Inquiry"] = relationship(back_populates="shipments")  # noqa: F821
-    quote: Mapped["Quote"] = relationship(back_populates="shipment")  # noqa: F821
+    inquiry: Mapped["Inquiry"] = relationship(back_populates="shipment")  # noqa: F821
+    quote: Mapped["Quote | None"] = relationship(back_populates="shipment")  # noqa: F821
     references: Mapped[list["ShipmentReference"]] = relationship(
         back_populates="shipment", cascade="all, delete-orphan"
     )

@@ -34,4 +34,4 @@ class Inquiry(TimestampMixin, Base):
 
     customer: Mapped["Customer"] = relationship(back_populates="inquiries")  # noqa: F821
     quotes: Mapped[list["Quote"]] = relationship(back_populates="inquiry")  # noqa: F821
-    shipments: Mapped[list["Shipment"]] = relationship(back_populates="inquiry")  # noqa: F821
+    shipment: Mapped["Shipment | None"] = relationship(back_populates="inquiry", uselist=False)  # noqa: F821

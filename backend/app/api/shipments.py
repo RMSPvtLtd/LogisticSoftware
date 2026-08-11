@@ -5,18 +5,25 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.dependencies import current_actor
 from app.errors import NotFound
-from app.models.enums import ShipmentStage, TransportMode
+from app.models.enums import EventSource, ShipmentStage, TransportMode
 from app.models.inquiry import Inquiry
 from app.models.shipment import Shipment, ShipmentReference
-from app.schemas.shipments import ReferenceCreateRequest, RiskUpdateRequest, ShipmentRead, StatusCorrectionRequest
-from app.services.transitions import correct_stage, set_risk
+from app.schemas.shipments import (
+    InvoiceRequest,
+    ReferenceCreateRequest,
+    RiskUpdateRequest,
+    ShipmentRead,
+    StatusCorrectionRequest,
+)
+from app.services.transitions import advance_stage, correct_stage, set_risk
 
 router = APIRouter(prefix="/shipments", tags=["shipments"])
 
-# There is deliberately no ops-facing "advance to next stage" endpoint here.
-# Normal progression belongs to workers, scoped to their area (see
-# app.api.worker_portal) -- ops only fixes mistakes, via correct_status
-# below, and manages risk/references, which are independent of stage.
+# There is deliberately no general ops-facing "advance to next stage"
+# endpoint here. Normal progression belongs to workers, scoped to their area
+# (see app.api.worker_portal) -- ops only fixes mistakes, via correct_status
+# below, manages risk/references (independent of stage), and performs the
+# one forward transition with no worker area: invoicing.
 
 
 def _get_shipment(db: Session, shipment_id: int) -> Shipment:
@@ -79,4 +86,22 @@ def update_risk(
 ) -> Shipment:
     shipment = _get_shipment(db, shipment_id)
     set_risk(db, shipment, is_at_risk=payload.is_at_risk, risk_reason=payload.risk_reason, actor=actor)
+    return shipment
+
+
+@router.post("/{shipment_id}/invoice", response_model=ShipmentRead)
+def invoice_shipment(
+    shipment_id: int,
+    payload: InvoiceRequest,
+    actor: str = Depends(current_actor),
+    db: Session = Depends(get_db),
+) -> Shipment:
+    """Ops marks the job invoiced. The only normal (non-correction) forward
+    transition ops performs directly -- only valid from ARRIVAL, since
+    advance_stage still enforces next-stage-only."""
+    shipment = _get_shipment(db, shipment_id)
+    advance_stage(
+        db, shipment, ShipmentStage.INVOICE_TO_CUSTOMER,
+        actor=actor, note=payload.note, source=EventSource.MANUAL,
+    )
     return shipment

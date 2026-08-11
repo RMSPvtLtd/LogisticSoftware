@@ -3,21 +3,15 @@ from datetime import date
 import pytest
 
 from app.errors import InvalidCorrection, InvalidTransition
-from app.models.enums import EventSource, ShipmentStage
+from app.models.enums import EventSource, OPERATIONAL_STAGE_ORDER, ShipmentStage
 from app.services.quotes import accept_quote, generate_quote
 from app.services.transitions import advance_stage, correct_stage
 from tests.factories import make_area, make_customer, make_inquiry, make_worker, simple_rate_card
 
 TODAY = date(2026, 6, 1)
 
-VALID_STEPS = [
-    ShipmentStage.DOCS_FILED,
-    ShipmentStage.PICKED_UP,
-    ShipmentStage.IN_TRANSIT,
-    ShipmentStage.CUSTOMS_CLEARANCE,
-    ShipmentStage.ARRIVED,
-    ShipmentStage.DELIVERED,
-]
+# Every stage a shipment moves through after job_opening, in order.
+VALID_STEPS = list(OPERATIONAL_STAGE_ORDER[OPERATIONAL_STAGE_ORDER.index(ShipmentStage.JOB_OPENING) + 1 :])
 
 
 def _accepted_shipment(db_session):
@@ -34,14 +28,15 @@ def test_all_valid_steps_progress_in_order(db_session):
     for stage in VALID_STEPS:
         advance_stage(db_session, shipment, stage, actor="ops", note=None, source=EventSource.MANUAL)
         assert shipment.stage == stage
-    assert len(shipment.status_events) == 1 + len(VALID_STEPS)  # + initial job_opened event
+    # inquiry, quotation, job_opening events already exist before this walk starts
+    assert len(shipment.status_events) == 3 + len(VALID_STEPS)
 
 
 @pytest.mark.parametrize(
     "from_stage,attempted",
     [
-        (ShipmentStage.JOB_OPENED, ShipmentStage.DELIVERED),
-        (ShipmentStage.IN_TRANSIT, ShipmentStage.PICKED_UP),
+        (ShipmentStage.JOB_OPENING, ShipmentStage.INVOICE_TO_CUSTOMER),
+        (ShipmentStage.CUSTOMS_EXAMINATION, ShipmentStage.SCANNING),
     ],
 )
 def test_skip_ahead_and_backwards_rejected(db_session, from_stage, attempted):
@@ -59,31 +54,34 @@ def test_skip_ahead_and_backwards_rejected(db_session, from_stage, attempted):
 
 def test_repeated_stage_rejected(db_session):
     shipment = _accepted_shipment(db_session)
-    advance_stage(db_session, shipment, ShipmentStage.DOCS_FILED, actor="ops", note=None, source=EventSource.MANUAL)
+    advance_stage(db_session, shipment, ShipmentStage.AIRWAY_BILL, actor="ops", note=None, source=EventSource.MANUAL)
 
     with pytest.raises(InvalidTransition):
-        advance_stage(db_session, shipment, ShipmentStage.DOCS_FILED, actor="ops", note=None, source=EventSource.MANUAL)
+        advance_stage(db_session, shipment, ShipmentStage.AIRWAY_BILL, actor="ops", note=None, source=EventSource.MANUAL)
 
 
-def test_transition_out_of_delivered_rejected(db_session):
+def test_transition_out_of_terminal_stage_rejected(db_session):
     shipment = _accepted_shipment(db_session)
     for stage in VALID_STEPS:
         advance_stage(db_session, shipment, stage, actor="ops", note=None, source=EventSource.MANUAL)
-    assert shipment.stage == ShipmentStage.DELIVERED
+    assert shipment.stage == ShipmentStage.INVOICE_TO_CUSTOMER
 
     with pytest.raises(InvalidTransition):
-        advance_stage(db_session, shipment, ShipmentStage.DELIVERED, actor="ops", note=None, source=EventSource.MANUAL)
+        advance_stage(db_session, shipment, ShipmentStage.INVOICE_TO_CUSTOMER, actor="ops", note=None, source=EventSource.MANUAL)
 
 
 def test_advance_stage_creates_event_and_preserves_prior_events(db_session):
     shipment = _accepted_shipment(db_session)
     initial_event_id = shipment.status_events[0].id
 
-    advance_stage(db_session, shipment, ShipmentStage.DOCS_FILED, actor="ops", note="filed", source=EventSource.MANUAL)
-    advance_stage(db_session, shipment, ShipmentStage.PICKED_UP, actor="ops", note="picked", source=EventSource.MANUAL)
+    advance_stage(db_session, shipment, ShipmentStage.AIRWAY_BILL, actor="ops", note="filed", source=EventSource.MANUAL)
+    advance_stage(db_session, shipment, ShipmentStage.GD, actor="ops", note="declared", source=EventSource.MANUAL)
 
     events = shipment.status_events
-    assert [e.stage for e in events] == [ShipmentStage.JOB_OPENED, ShipmentStage.DOCS_FILED, ShipmentStage.PICKED_UP]
+    assert [e.stage for e in events] == [
+        ShipmentStage.INQUIRY, ShipmentStage.QUOTATION, ShipmentStage.JOB_OPENING,
+        ShipmentStage.AIRWAY_BILL, ShipmentStage.GD,
+    ]
     assert events[0].id == initial_event_id
     assert events == sorted(events, key=lambda e: e.timestamp)
 
@@ -93,31 +91,39 @@ def test_advance_stage_creates_event_and_preserves_prior_events(db_session):
 
 def test_correction_moves_to_arbitrary_valid_stage(db_session):
     shipment = _accepted_shipment(db_session)
-    advance_stage(db_session, shipment, ShipmentStage.DOCS_FILED, actor="ops", note=None, source=EventSource.MANUAL)
-    advance_stage(db_session, shipment, ShipmentStage.PICKED_UP, actor="ops", note=None, source=EventSource.MANUAL)
+    advance_stage(db_session, shipment, ShipmentStage.AIRWAY_BILL, actor="ops", note=None, source=EventSource.MANUAL)
+    advance_stage(db_session, shipment, ShipmentStage.GD, actor="ops", note=None, source=EventSource.MANUAL)
     ids_before = [e.id for e in shipment.status_events]
 
     event = correct_stage(
-        db_session, shipment, ShipmentStage.IN_TRANSIT, actor="ops", reason="cargo already departed, status was stale"
+        db_session, shipment, ShipmentStage.PICKUP, actor="ops", reason="cargo already picked up, status was stale"
     )
 
-    assert shipment.stage == ShipmentStage.IN_TRANSIT
+    assert shipment.stage == ShipmentStage.PICKUP
     assert event.source == EventSource.CORRECTION
     assert event.is_stage_change is True
-    assert "cargo already departed" in event.note
+    assert "cargo already picked up" in event.note
     assert [e.id for e in shipment.status_events[: len(ids_before)]] == ids_before
+
+
+def test_correction_cannot_target_inquiry_or_quotation(db_session):
+    shipment = _accepted_shipment(db_session)
+    with pytest.raises(InvalidCorrection):
+        correct_stage(db_session, shipment, ShipmentStage.INQUIRY, actor="ops", reason="test")
+    with pytest.raises(InvalidCorrection):
+        correct_stage(db_session, shipment, ShipmentStage.QUOTATION, actor="ops", reason="test")
 
 
 def test_correction_same_stage_rejected(db_session):
     shipment = _accepted_shipment(db_session)
     with pytest.raises(InvalidCorrection):
-        correct_stage(db_session, shipment, ShipmentStage.JOB_OPENED, actor="ops", reason="no-op")
+        correct_stage(db_session, shipment, ShipmentStage.JOB_OPENING, actor="ops", reason="no-op")
 
 
 def test_correction_blank_reason_rejected(db_session):
     shipment = _accepted_shipment(db_session)
     with pytest.raises(InvalidCorrection):
-        correct_stage(db_session, shipment, ShipmentStage.IN_TRANSIT, actor="ops", reason="   ")
+        correct_stage(db_session, shipment, ShipmentStage.PICKUP, actor="ops", reason="   ")
 
 
 # --- server-controlled event source (API layer) ---
@@ -131,8 +137,8 @@ def test_correction_blank_reason_rejected(db_session):
 def test_caller_cannot_spoof_event_source_via_worker_complete(client, db_session):
     customer = make_customer(db_session)
     simple_rate_card(db_session)
-    docs_area = make_area(db_session, ShipmentStage.DOCS_FILED)
-    make_worker(db_session, docs_area, username="ali.docs", password="Correct123!")
+    airway_bill_area = make_area(db_session, ShipmentStage.AIRWAY_BILL)
+    make_worker(db_session, airway_bill_area, username="ali.airwaybill", password="Correct123!")
     db_session.commit()  # visible to the client's own session (shared in-memory engine)
 
     r = client.post(
@@ -153,7 +159,7 @@ def test_caller_cannot_spoof_event_source_via_worker_complete(client, db_session
     assert r.status_code == 200, r.text
     shipment_id = r.json()["id"]
 
-    login = client.post("/auth/login", json={"username": "ali.docs", "password": "Correct123!"})
+    login = client.post("/auth/login", json={"username": "ali.airwaybill", "password": "Correct123!"})
     assert login.status_code == 200, login.text
     token = login.json()["access_token"]
 
@@ -165,6 +171,6 @@ def test_caller_cannot_spoof_event_source_via_worker_complete(client, db_session
     assert r.status_code == 200, r.text
 
     check = client.get(f"/shipments/{shipment_id}")
-    docs_event = next(e for e in check.json()["status_events"] if e["stage"] == "docs_filed")
-    assert docs_event["source"] == "manual", "a client-supplied 'source' field must never override the server's choice"
-    assert docs_event["actor"] != "correction"
+    event = next(e for e in check.json()["status_events"] if e["stage"] == "airway_bill")
+    assert event["source"] == "manual", "a client-supplied 'source' field must never override the server's choice"
+    assert event["actor"] != "correction"

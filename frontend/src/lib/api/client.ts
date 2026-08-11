@@ -114,6 +114,8 @@ export const shipmentsApi = {
       method: "POST",
       body: JSON.stringify({ is_at_risk: isAtRisk, risk_reason: riskReason ?? null }),
     }),
+  invoice: (id: number, note?: string) =>
+    request<Shipment>(`/shipments/${id}/invoice`, { method: "POST", body: JSON.stringify({ note: note || undefined }) }),
 }
 
 // --- tracking ---

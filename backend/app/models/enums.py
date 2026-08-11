@@ -1,8 +1,13 @@
-"""Sole owner of shipment stage ordering, labels, and the operational sequence
-used by the customer tracking checklist. Every other module — the transition
-service, the tracking schema, `GET /meta/stages`, and eventually the frontend —
-reads stage order and labels from here. Nothing else re-encodes this ordering,
-so a stage can be added or relabeled in exactly one place.
+"""Sole owner of shipment stage ordering, labels, and grouping. Every other
+module — the transition service, the tracking schema, `GET /meta/stages`,
+and the frontend — reads stage order/labels/groups from here. Nothing else
+re-encodes this ordering, so a stage can be added, relabeled, or regrouped
+in exactly one place.
+
+A shipment tracking row is created the moment an Inquiry is filed
+(`services.inquiries.create_inquiry`) and moves through every stage below,
+in order, starting at INQUIRY. There are no separate "pre-shipment" stages
+anymore — Inquiry and Quotation are real, trackable Shipment stages.
 """
 
 from enum import Enum
@@ -10,64 +15,104 @@ from enum import Enum
 
 class ShipmentStage(str, Enum):
     INQUIRY = "inquiry"
-    QUOTED = "quoted"
-    JOB_OPENED = "job_opened"
-    DOCS_FILED = "docs_filed"
-    PICKED_UP = "picked_up"
-    IN_TRANSIT = "in_transit"
+    QUOTATION = "quotation"
+    JOB_OPENING = "job_opening"
+    AIRWAY_BILL = "airway_bill"
+    GD = "gd"
+    PICKUP = "pickup"
+    GATE_IN = "gate_in"
+    SHIPMENT_RECEIPT = "shipment_receipt"
+    WEIGHMENT = "weighment"
+    CUSTOMS_EXAMINATION = "customs_examination"
     CUSTOMS_CLEARANCE = "customs_clearance"
-    ARRIVED = "arrived"
-    DELIVERED = "delivered"
+    SCANNING = "scanning"
+    HANDOVER = "handover"
+    DEPARTURE = "departure"
+    TRANSHIPMENT = "transhipment"
+    ARRIVAL = "arrival"
+    INVOICE_TO_CUSTOMER = "invoice_to_customer"
 
 
-# Full lifecycle order, including the pre-shipment stages (inquiry, quoted)
-# that exist conceptually but are never written to Shipment.stage — a
-# Shipment is only ever created once a quote is accepted, starting at
-# job_opened.
-_FULL_STAGE_ORDER: tuple[ShipmentStage, ...] = (
+# The complete lifecycle, in order. Every Shipment moves through all of
+# these, one at a time, starting at INQUIRY (index 0).
+OPERATIONAL_STAGE_ORDER: tuple[ShipmentStage, ...] = (
     ShipmentStage.INQUIRY,
-    ShipmentStage.QUOTED,
-    ShipmentStage.JOB_OPENED,
-    ShipmentStage.DOCS_FILED,
-    ShipmentStage.PICKED_UP,
-    ShipmentStage.IN_TRANSIT,
+    ShipmentStage.QUOTATION,
+    ShipmentStage.JOB_OPENING,
+    ShipmentStage.AIRWAY_BILL,
+    ShipmentStage.GD,
+    ShipmentStage.PICKUP,
+    ShipmentStage.GATE_IN,
+    ShipmentStage.SHIPMENT_RECEIPT,
+    ShipmentStage.WEIGHMENT,
+    ShipmentStage.CUSTOMS_EXAMINATION,
     ShipmentStage.CUSTOMS_CLEARANCE,
-    ShipmentStage.ARRIVED,
-    ShipmentStage.DELIVERED,
-)
-
-# The operational sequence a Shipment actually moves through, and the sequence
-# the customer tracking checklist is built from. Starts at job_opened because
-# that is the stage a Shipment is created at.
-OPERATIONAL_STAGE_ORDER: tuple[ShipmentStage, ...] = tuple(
-    stage for stage in _FULL_STAGE_ORDER if stage != ShipmentStage.INQUIRY and stage != ShipmentStage.QUOTED
+    ShipmentStage.SCANNING,
+    ShipmentStage.HANDOVER,
+    ShipmentStage.DEPARTURE,
+    ShipmentStage.TRANSHIPMENT,
+    ShipmentStage.ARRIVAL,
+    ShipmentStage.INVOICE_TO_CUSTOMER,
 )
 
 STAGE_LABELS: dict[ShipmentStage, str] = {
     ShipmentStage.INQUIRY: "Inquiry",
-    ShipmentStage.QUOTED: "Quoted",
-    ShipmentStage.JOB_OPENED: "Job Opened",
-    ShipmentStage.DOCS_FILED: "Documentation Filed",
-    ShipmentStage.PICKED_UP: "Picked Up",
-    ShipmentStage.IN_TRANSIT: "In Transit",
+    ShipmentStage.QUOTATION: "Quotation",
+    ShipmentStage.JOB_OPENING: "Job Opening",
+    ShipmentStage.AIRWAY_BILL: "Airway Bill",
+    ShipmentStage.GD: "GD (Goods Declaration)",
+    ShipmentStage.PICKUP: "Pickup",
+    ShipmentStage.GATE_IN: "Gate In",
+    ShipmentStage.SHIPMENT_RECEIPT: "Shipment Receipt",
+    ShipmentStage.WEIGHMENT: "Weighment",
+    ShipmentStage.CUSTOMS_EXAMINATION: "Customs Examination",
     ShipmentStage.CUSTOMS_CLEARANCE: "Customs Clearance",
-    ShipmentStage.ARRIVED: "Arrived",
-    ShipmentStage.DELIVERED: "Delivered",
+    ShipmentStage.SCANNING: "Scanning",
+    ShipmentStage.HANDOVER: "Handover",
+    ShipmentStage.DEPARTURE: "Departure",
+    ShipmentStage.TRANSHIPMENT: "Transhipment",
+    ShipmentStage.ARRIVAL: "Arrival",
+    ShipmentStage.INVOICE_TO_CUSTOMER: "Invoice to Customer",
+}
+
+# Display-only grouping ("sub categories") for stages that belong to a
+# named section of the pipeline. A stage not listed here is a standalone,
+# top-level step. Purely presentational — it does not change ordering,
+# transition rules, or worker-area assignment.
+STAGE_GROUPS: dict[ShipmentStage, str] = {
+    ShipmentStage.AIRWAY_BILL: "Documentation",
+    ShipmentStage.GD: "Documentation",
+    ShipmentStage.GATE_IN: "Airport",
+    ShipmentStage.SHIPMENT_RECEIPT: "Airport",
+    ShipmentStage.WEIGHMENT: "Airport",
+    ShipmentStage.CUSTOMS_EXAMINATION: "Airport",
+    ShipmentStage.CUSTOMS_CLEARANCE: "Airport",
+    ShipmentStage.SCANNING: "Airport",
+    ShipmentStage.HANDOVER: "Airport",
+    ShipmentStage.DEPARTURE: "Airline",
+    ShipmentStage.TRANSHIPMENT: "Airline",
+    ShipmentStage.ARRIVAL: "Airline",
 }
 
 
 def stage_label(stage: ShipmentStage) -> str:
-    """Human-readable label for a stage, e.g. in_transit -> 'In Transit'."""
+    """Human-readable label for a stage, e.g. customs_examination -> 'Customs Examination'."""
     return STAGE_LABELS[stage]
 
 
+def stage_group(stage: ShipmentStage) -> str | None:
+    """The display section a stage belongs to (e.g. 'Airport'), or None for
+    a standalone stage."""
+    return STAGE_GROUPS.get(stage)
+
+
 def stage_index(stage: ShipmentStage) -> int:
-    """Position of `stage` within the operational sequence (job_opened=0)."""
+    """Position of `stage` within the lifecycle (inquiry=0)."""
     return OPERATIONAL_STAGE_ORDER.index(stage)
 
 
 def next_stage(stage: ShipmentStage) -> ShipmentStage | None:
-    """The immediate next operational stage, or None if `stage` is terminal."""
+    """The immediate next stage, or None if `stage` is terminal."""
     idx = stage_index(stage)
     if idx + 1 >= len(OPERATIONAL_STAGE_ORDER):
         return None
@@ -75,19 +120,39 @@ def next_stage(stage: ShipmentStage) -> ShipmentStage | None:
 
 
 def previous_stage(stage: ShipmentStage) -> ShipmentStage | None:
-    """The immediate previous operational stage, or None if `stage` is job_opened
-    (nothing precedes it — a Shipment is created there by quote acceptance,
-    not advanced into it by a worker)."""
+    """The immediate previous stage, or None if `stage` is INQUIRY (nothing
+    precedes it — a Shipment is created there directly by
+    `services.inquiries.create_inquiry`)."""
     idx = stage_index(stage)
     if idx == 0:
         return None
     return OPERATIONAL_STAGE_ORDER[idx - 1]
 
 
-# Stages a worker Area can be responsible for producing. job_opened is
-# excluded -- it is created by quote acceptance (services.quotes.accept_quote),
-# never by a worker completing a queue item.
-WORKER_ASSIGNABLE_STAGES: tuple[ShipmentStage, ...] = OPERATIONAL_STAGE_ORDER[1:]
+# Stages produced automatically by application events rather than a person
+# marking them done: INQUIRY at shipment creation, QUOTATION when a quote is
+# generated, JOB_OPENING when a quote is accepted (services.quotes).
+SYSTEM_DRIVEN_STAGES: tuple[ShipmentStage, ...] = (
+    ShipmentStage.INQUIRY,
+    ShipmentStage.QUOTATION,
+    ShipmentStage.JOB_OPENING,
+)
+
+# Stages a worker Area can be responsible for -- everything between the
+# system-driven stages and the ops-only final invoicing step. Each of these
+# gets its own Area (see app.models.worker) and worker queue.
+WORKER_ASSIGNABLE_STAGES: tuple[ShipmentStage, ...] = tuple(
+    s
+    for s in OPERATIONAL_STAGE_ORDER
+    if s not in SYSTEM_DRIVEN_STAGES and s != ShipmentStage.INVOICE_TO_CUSTOMER
+)
+
+# Valid targets for services.transitions.correct_stage -- once a job exists
+# (job_opening onward). Correcting "back" to inquiry/quotation doesn't make
+# operational sense once a job number has been issued.
+CORRECTABLE_STAGES: tuple[ShipmentStage, ...] = tuple(
+    s for s in OPERATIONAL_STAGE_ORDER if stage_index(s) >= stage_index(ShipmentStage.JOB_OPENING)
+)
 
 
 class TransportMode(str, Enum):

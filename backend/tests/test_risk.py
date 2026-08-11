@@ -37,6 +37,7 @@ def test_clear_risk(db_session):
 def test_risk_change_creates_internal_history_event(db_session):
     shipment = _accepted_shipment(db_session)
     n_before = len(shipment.status_events)
+    stage_before = shipment.stage
 
     set_risk(db_session, shipment, is_at_risk=True, risk_reason="Customs docs pending", actor="ops")
 
@@ -45,7 +46,7 @@ def test_risk_change_creates_internal_history_event(db_session):
     assert event.source == EventSource.SYSTEM
     assert event.is_internal is True
     assert event.is_stage_change is False
-    assert shipment.stage == shipment.status_events[0].stage  # risk change never touches stage
+    assert shipment.stage == stage_before  # risk change never touches stage
 
 
 def test_tracking_exposes_only_at_risk_boolean(db_session):

@@ -7,6 +7,18 @@ from tests.factories import make_area, make_customer, make_inquiry, make_worker,
 
 TODAY = date(2026, 6, 1)
 
+# Steps between job_opening and customs_clearance -- used to walk a shipment
+# to "waiting for Customs Clearance" without hardcoding stage positions twice.
+STEPS_TO_CUSTOMS_CLEARANCE = [
+    ShipmentStage.AIRWAY_BILL,
+    ShipmentStage.GD,
+    ShipmentStage.PICKUP,
+    ShipmentStage.GATE_IN,
+    ShipmentStage.SHIPMENT_RECEIPT,
+    ShipmentStage.WEIGHMENT,
+    ShipmentStage.CUSTOMS_EXAMINATION,
+]
+
 
 def _accepted_shipment(db_session, **inquiry_overrides):
     customer = make_customer(db_session)
@@ -28,16 +40,16 @@ def _auth_headers(token: str) -> dict:
 
 
 def test_queue_shows_only_shipments_at_the_preceding_stage(client, db_session):
-    docs_area = make_area(db_session, ShipmentStage.DOCS_FILED)
-    make_worker(db_session, docs_area, username="ali.docs")
+    airway_bill_area = make_area(db_session, ShipmentStage.AIRWAY_BILL)
+    make_worker(db_session, airway_bill_area, username="ali.airwaybill")
 
-    ready = _accepted_shipment(db_session)  # at job_opened -- ready for docs_filed
+    ready = _accepted_shipment(db_session)  # at job_opening -- ready for airway_bill
     not_ready = _accepted_shipment(db_session)
-    advance_stage(db_session, not_ready, ShipmentStage.DOCS_FILED, actor="ops", note=None, source=EventSource.MANUAL)
-    advance_stage(db_session, not_ready, ShipmentStage.PICKED_UP, actor="ops", note=None, source=EventSource.MANUAL)
+    advance_stage(db_session, not_ready, ShipmentStage.AIRWAY_BILL, actor="ops", note=None, source=EventSource.MANUAL)
+    advance_stage(db_session, not_ready, ShipmentStage.GD, actor="ops", note=None, source=EventSource.MANUAL)
     db_session.commit()
 
-    token = _login(client, "ali.docs")
+    token = _login(client, "ali.airwaybill")
     r = client.get("/worker/queue", headers=_auth_headers(token))
     assert r.status_code == 200, r.text
     ids = [item["id"] for item in r.json()]
@@ -56,9 +68,8 @@ def test_two_workers_in_the_same_area_see_the_same_queue(client, db_session):
     make_worker(db_session, customs_area, username="sana.customs")
 
     shipment = _accepted_shipment(db_session)
-    advance_stage(db_session, shipment, ShipmentStage.DOCS_FILED, actor="ops", note=None, source=EventSource.MANUAL)
-    advance_stage(db_session, shipment, ShipmentStage.PICKED_UP, actor="ops", note=None, source=EventSource.MANUAL)
-    advance_stage(db_session, shipment, ShipmentStage.IN_TRANSIT, actor="ops", note=None, source=EventSource.MANUAL)
+    for stage in STEPS_TO_CUSTOMS_CLEARANCE:
+        advance_stage(db_session, shipment, stage, actor="ops", note=None, source=EventSource.MANUAL)
     db_session.commit()
 
     token_omar = _login(client, "omar.customs")
@@ -73,32 +84,32 @@ def test_two_workers_in_the_same_area_see_the_same_queue(client, db_session):
 
 
 def test_complete_stage_succeeds_when_shipment_is_ready(client, db_session):
-    docs_area = make_area(db_session, ShipmentStage.DOCS_FILED)
-    make_worker(db_session, docs_area, name="Ayesha Raza", username="ayesha.docs")
+    airway_bill_area = make_area(db_session, ShipmentStage.AIRWAY_BILL)
+    make_worker(db_session, airway_bill_area, name="Ayesha Raza", username="ayesha.airwaybill")
 
     shipment = _accepted_shipment(db_session)
     db_session.commit()
     shipment_id = shipment.id
 
-    token = _login(client, "ayesha.docs")
+    token = _login(client, "ayesha.airwaybill")
     r = client.post(
         f"/worker/shipments/{shipment_id}/complete",
-        json={"note": "Docs filed and verified"},
+        json={"note": "Airway bill filed and verified"},
         headers=_auth_headers(token),
     )
     assert r.status_code == 200, r.text
 
     check = client.get(f"/shipments/{shipment_id}")
-    assert check.json()["stage"] == "docs_filed"
+    assert check.json()["stage"] == "airway_bill"
     last_event = check.json()["status_events"][-1]
     assert last_event["actor"] == "Ayesha Raza"
     assert last_event["source"] == "manual"
-    assert last_event["note"] == "Docs filed and verified"
+    assert last_event["note"] == "Airway bill filed and verified"
 
 
 def test_complete_stage_rejected_when_shipment_not_ready(client, db_session):
-    # Worker is in Customs, but the shipment is still at job_opened -- three
-    # stages away from customs_clearance.
+    # Worker is in Customs Clearance, but the shipment is still at
+    # job_opening -- seven stages away.
     customs_area = make_area(db_session, ShipmentStage.CUSTOMS_CLEARANCE)
     make_worker(db_session, customs_area, username="omar.customs")
 
@@ -111,7 +122,7 @@ def test_complete_stage_rejected_when_shipment_not_ready(client, db_session):
     assert r.status_code == 409
 
     check = client.get(f"/shipments/{shipment_id}")
-    assert check.json()["stage"] == "job_opened", "shipment must not have been mutated"
+    assert check.json()["stage"] == "job_opening", "shipment must not have been mutated"
 
 
 def test_complete_stage_requires_authentication(client, db_session):
@@ -123,9 +134,9 @@ def test_complete_stage_requires_authentication(client, db_session):
 
 
 def test_inactive_worker_cannot_use_existing_token_flows(client, db_session):
-    docs_area = make_area(db_session, ShipmentStage.DOCS_FILED)
-    make_worker(db_session, docs_area, username="ali.docs", is_active=False)
+    airway_bill_area = make_area(db_session, ShipmentStage.AIRWAY_BILL)
+    make_worker(db_session, airway_bill_area, username="ali.airwaybill", is_active=False)
     db_session.commit()
 
-    r = client.post("/auth/login", json={"username": "ali.docs", "password": "Worker123!"})
+    r = client.post("/auth/login", json={"username": "ali.airwaybill", "password": "Worker123!"})
     assert r.status_code == 401

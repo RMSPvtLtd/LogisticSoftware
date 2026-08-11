@@ -18,11 +18,13 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { useAsync } from "@/hooks/useAsync"
+import { useStages } from "@/hooks/useStages"
 import { areasApi, workersApi, ApiError } from "@/lib/api/client"
 
 export function WorkersAdminPage() {
   const areas = useAsync(() => areasApi.list(), [])
   const workers = useAsync(() => workersApi.list(), [])
+  const { groupFor } = useStages()
 
   const loading = areas.loading || workers.loading
   const error = areas.error ?? workers.error
@@ -44,42 +46,52 @@ export function WorkersAdminPage() {
 
       {!loading && !error && (
         <div className="space-y-6">
-          {areas.data!.map((area) => {
+          {areas.data!.map((area, i) => {
             const areaWorkers = workers.data!.filter((w) => w.area.id === area.id)
+            const group = groupFor(area.stage)
+            const previousGroup = i > 0 ? groupFor(areas.data![i - 1].stage) : null
+            const showGroupHeader = group !== null && group !== previousGroup
             return (
-              <Card key={area.id}>
-                <CardContent className="py-4">
-                  <div className="mb-3 flex items-center gap-2">
-                    <h2 className="font-heading text-sm font-semibold text-foreground">{area.name}</h2>
-                    <Badge variant="outline" className="text-[11px]">
-                      {areaWorkers.length} worker{areaWorkers.length === 1 ? "" : "s"}
-                    </Badge>
-                  </div>
-                  {areaWorkers.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No workers assigned yet.</p>
-                  ) : (
-                    <ul className="space-y-1.5">
-                      {areaWorkers.map((w) => (
-                        <li
-                          key={w.id}
-                          className="flex items-center justify-between gap-3 rounded-lg bg-muted px-3 py-2 text-sm"
-                        >
-                          <span className="flex items-center gap-2">
-                            <UserCircle size={18} className="text-muted-foreground" />
-                            <span className="font-medium text-foreground">{w.name}</span>
-                            <span className="text-muted-foreground">@{w.username}</span>
-                          </span>
-                          <ToggleActiveButton
-                            workerId={w.id}
-                            isActive={w.is_active}
-                            onChanged={workers.reload}
-                          />
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </CardContent>
-              </Card>
+              <div key={area.id}>
+                {showGroupHeader && (
+                  <p className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                    {group}
+                  </p>
+                )}
+                <Card>
+                  <CardContent className="py-4">
+                    <div className="mb-3 flex items-center gap-2">
+                      <h2 className="font-heading text-sm font-semibold text-foreground">{area.name}</h2>
+                      <Badge variant="outline" className="text-[11px]">
+                        {areaWorkers.length} worker{areaWorkers.length === 1 ? "" : "s"}
+                      </Badge>
+                    </div>
+                    {areaWorkers.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No workers assigned yet.</p>
+                    ) : (
+                      <ul className="space-y-1.5">
+                        {areaWorkers.map((w) => (
+                          <li
+                            key={w.id}
+                            className="flex items-center justify-between gap-3 rounded-lg bg-muted px-3 py-2 text-sm"
+                          >
+                            <span className="flex items-center gap-2">
+                              <UserCircle size={18} className="text-muted-foreground" />
+                              <span className="font-medium text-foreground">{w.name}</span>
+                              <span className="text-muted-foreground">@{w.username}</span>
+                            </span>
+                            <ToggleActiveButton
+                              workerId={w.id}
+                              isActive={w.is_active}
+                              onChanged={workers.reload}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
             )
           })}
         </div>
