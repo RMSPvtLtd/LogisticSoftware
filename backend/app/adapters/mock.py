@@ -16,12 +16,6 @@ _DEFAULT_CANNED_STATUSES: dict[str, NormalizedStatus] = {
         note="Flight departed origin airport",
         provider_reference="ABC123",
     ),
-    "MSKU7654321": NormalizedStatus(
-        stage=ShipmentStage.DEPARTURE,
-        occurred_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        note="Vessel departed origin port",
-        provider_reference="MSKU7654321",
-    ),
 }
 
 

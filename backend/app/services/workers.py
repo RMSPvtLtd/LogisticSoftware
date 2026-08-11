@@ -39,19 +39,12 @@ def create_worker(session: Session, *, name: str, username: str, password: str, 
 
 def worker_queue(session: Session, worker: Worker) -> list[Shipment]:
     """Shipments currently waiting to enter this worker's area stage,
-    oldest-waiting first. Filtered to the area's mode too -- air and sea
-    areas can own the same stage value (see app.models.worker.Area), so
-    without this filter a sea customs officer's queue would include air
-    shipments sitting at the same stage, and vice versa.
+    oldest-waiting first.
     """
     waiting_stage = previous_stage(worker.area.stage)
     if waiting_stage is None:
         return []
-    stmt = (
-        select(Shipment)
-        .where(Shipment.stage == waiting_stage, Shipment.mode == worker.area.mode)
-        .order_by(Shipment.updated_at)
-    )
+    stmt = select(Shipment).where(Shipment.stage == waiting_stage).order_by(Shipment.updated_at)
     return list(session.execute(stmt).scalars())
 
 

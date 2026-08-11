@@ -95,7 +95,7 @@ def from_shipment(shipment: Shipment) -> TrackingResult:
         job_number=shipment.job_number,
         origin=shipment.inquiry.origin,
         destination=shipment.inquiry.destination,
-        mode=shipment.mode,
+        mode=shipment.inquiry.mode,
         stage=shipment.stage,
         checklist=_build_checklist(shipment),
         status_history=history,

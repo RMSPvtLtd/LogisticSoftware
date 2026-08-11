@@ -13,12 +13,6 @@ anymore — Inquiry and Quotation are real, trackable Shipment stages.
 from enum import Enum
 
 
-class TransportMode(str, Enum):
-    AIR = "air"
-    SEA = "sea"
-    ROAD = "road"
-
-
 class ShipmentStage(str, Enum):
     INQUIRY = "inquiry"
     QUOTATION = "quotation"
@@ -101,54 +95,14 @@ STAGE_GROUPS: dict[ShipmentStage, str] = {
 }
 
 
-# Per-mode overrides for the handful of stage labels/groups that are
-# air-flavored by default. Sea walks the exact same OPERATIONAL_STAGE_ORDER
-# as air (same stage enum members, same transition rules) -- only the
-# display text differs: the transport document is a "Bill of Lading" not an
-# "Airway Bill", and the physical location groups are "Port"/"Carrier" not
-# "Airport"/"Airline". Any stage/mode not listed here falls back to
-# STAGE_LABELS / STAGE_GROUPS unchanged, so air's output is untouched.
-STAGE_LABEL_OVERRIDES_BY_MODE: dict[TransportMode, dict[ShipmentStage, str]] = {
-    TransportMode.SEA: {
-        ShipmentStage.AIRWAY_BILL: "Bill of Lading",
-    },
-}
-
-STAGE_GROUP_OVERRIDES_BY_MODE: dict[TransportMode, dict[ShipmentStage, str]] = {
-    TransportMode.SEA: {
-        ShipmentStage.GATE_IN: "Port",
-        ShipmentStage.SHIPMENT_RECEIPT: "Port",
-        ShipmentStage.WEIGHMENT: "Port",
-        ShipmentStage.CUSTOMS_EXAMINATION: "Port",
-        ShipmentStage.CUSTOMS_CLEARANCE: "Port",
-        ShipmentStage.SCANNING: "Port",
-        ShipmentStage.HANDOVER: "Port",
-        ShipmentStage.DEPARTURE: "Carrier",
-        ShipmentStage.TRANSHIPMENT: "Carrier",
-        ShipmentStage.ARRIVAL: "Carrier",
-    },
-}
-
-
-def stage_label(stage: ShipmentStage, mode: TransportMode | None = None) -> str:
-    """Human-readable label for a stage, e.g. customs_examination -> 'Customs Examination'.
-    Pass `mode` to get that mode's label where it differs from air's default
-    (e.g. AIRWAY_BILL -> "Bill of Lading" for sea)."""
-    if mode is not None:
-        override = STAGE_LABEL_OVERRIDES_BY_MODE.get(mode, {}).get(stage)
-        if override is not None:
-            return override
+def stage_label(stage: ShipmentStage) -> str:
+    """Human-readable label for a stage, e.g. customs_examination -> 'Customs Examination'."""
     return STAGE_LABELS[stage]
 
 
-def stage_group(stage: ShipmentStage, mode: TransportMode | None = None) -> str | None:
+def stage_group(stage: ShipmentStage) -> str | None:
     """The display section a stage belongs to (e.g. 'Airport'), or None for
-    a standalone stage. Pass `mode` to get that mode's group where it
-    differs from air's default (e.g. "Airport" -> "Port" for sea)."""
-    if mode is not None:
-        override = STAGE_GROUP_OVERRIDES_BY_MODE.get(mode, {}).get(stage)
-        if override is not None:
-            return override
+    a standalone stage."""
     return STAGE_GROUPS.get(stage)
 
 
@@ -199,6 +153,12 @@ WORKER_ASSIGNABLE_STAGES: tuple[ShipmentStage, ...] = tuple(
 CORRECTABLE_STAGES: tuple[ShipmentStage, ...] = tuple(
     s for s in OPERATIONAL_STAGE_ORDER if stage_index(s) >= stage_index(ShipmentStage.JOB_OPENING)
 )
+
+
+class TransportMode(str, Enum):
+    AIR = "air"
+    SEA = "sea"
+    ROAD = "road"
 
 
 class QuoteStatus(str, Enum):

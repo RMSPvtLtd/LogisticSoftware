@@ -112,17 +112,13 @@ def simple_rate_card(session: Session, *, rate: Decimal = Decimal("5.00"), **rc_
     return rate_card
 
 
-def make_area(
-    session: Session, stage: ShipmentStage, *, mode: TransportMode = TransportMode.AIR, **overrides
-) -> m.Area:
-    existing = session.execute(
-        select(m.Area).where(m.Area.stage == stage, m.Area.mode == mode)
-    ).scalar_one_or_none()
+def make_area(session: Session, stage: ShipmentStage, **overrides) -> m.Area:
+    existing = session.execute(select(m.Area).where(m.Area.stage == stage)).scalar_one_or_none()
     if existing is not None:
         return existing
-    defaults = dict(name=f"{mode.value}-{stage.value}-area")
+    defaults = dict(name=f"{stage.value}-area")
     defaults.update(overrides)
-    area = m.Area(stage=stage, mode=mode, **defaults)
+    area = m.Area(stage=stage, **defaults)
     session.add(area)
     session.flush()
     return area

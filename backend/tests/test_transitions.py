@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 
 from app.errors import InvalidCorrection, InvalidTransition
-from app.models.enums import EventSource, OPERATIONAL_STAGE_ORDER, ShipmentStage, TransportMode
+from app.models.enums import EventSource, OPERATIONAL_STAGE_ORDER, ShipmentStage
 from app.services.quotes import accept_quote, generate_quote
 from app.services.transitions import advance_stage, correct_stage
 from tests.factories import make_area, make_customer, make_inquiry, make_worker, simple_rate_card
@@ -14,10 +14,10 @@ TODAY = date(2026, 6, 1)
 VALID_STEPS = list(OPERATIONAL_STAGE_ORDER[OPERATIONAL_STAGE_ORDER.index(ShipmentStage.JOB_OPENING) + 1 :])
 
 
-def _accepted_shipment(db_session, **inquiry_overrides):
+def _accepted_shipment(db_session):
     customer = make_customer(db_session)
-    simple_rate_card(db_session, mode=inquiry_overrides.get("mode", TransportMode.AIR))
-    inquiry = make_inquiry(db_session, customer, **inquiry_overrides)
+    simple_rate_card(db_session)
+    inquiry = make_inquiry(db_session, customer)
     quote = generate_quote(db_session, inquiry.id, today=TODAY)
     db_session.flush()
     return accept_quote(db_session, quote.id, "ops", today=TODAY)
@@ -30,17 +30,6 @@ def test_all_valid_steps_progress_in_order(db_session):
         assert shipment.stage == stage
     # inquiry, quotation, job_opening events already exist before this walk starts
     assert len(shipment.status_events) == 3 + len(VALID_STEPS)
-
-
-def test_sea_shipment_walks_the_identical_stage_order(db_session):
-    # Sea reuses OPERATIONAL_STAGE_ORDER as-is -- transitions don't care
-    # about mode at all, only display labels differ (see test_tracking.py).
-    shipment = _accepted_shipment(db_session, mode=TransportMode.SEA)
-    assert shipment.mode == TransportMode.SEA
-    for stage in VALID_STEPS:
-        advance_stage(db_session, shipment, stage, actor="ops", note=None, source=EventSource.MANUAL)
-        assert shipment.stage == stage
-    assert shipment.stage == ShipmentStage.INVOICE_TO_CUSTOMER
 
 
 @pytest.mark.parametrize(

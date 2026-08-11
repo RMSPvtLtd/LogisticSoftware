@@ -1,6 +1,6 @@
 from datetime import date
 
-from app.models.enums import EventSource, ShipmentStage, TransportMode
+from app.models.enums import EventSource, ShipmentStage
 from app.services.quotes import accept_quote, generate_quote
 from app.services.transitions import advance_stage
 from tests.factories import make_area, make_customer, make_inquiry, make_worker, simple_rate_card
@@ -22,7 +22,7 @@ STEPS_TO_CUSTOMS_CLEARANCE = [
 
 def _accepted_shipment(db_session, **inquiry_overrides):
     customer = make_customer(db_session)
-    simple_rate_card(db_session, mode=inquiry_overrides.get("mode", TransportMode.AIR))
+    simple_rate_card(db_session)
     inquiry = make_inquiry(db_session, customer, **inquiry_overrides)
     quote = generate_quote(db_session, inquiry.id, today=TODAY)
     db_session.flush()
@@ -140,28 +140,3 @@ def test_inactive_worker_cannot_use_existing_token_flows(client, db_session):
 
     r = client.post("/auth/login", json={"username": "ali.airwaybill", "password": "Worker123!"})
     assert r.status_code == 401
-
-
-def test_sea_and_air_worker_queues_never_mix(client, db_session):
-    # Air and sea areas can own the same ShipmentStage value (AIRWAY_BILL),
-    # so without a mode filter a sea worker's queue would include an air
-    # shipment sitting at the same stage, and vice versa.
-    air_area = make_area(db_session, ShipmentStage.AIRWAY_BILL, mode=TransportMode.AIR)
-    sea_area = make_area(db_session, ShipmentStage.AIRWAY_BILL, mode=TransportMode.SEA)
-    make_worker(db_session, air_area, username="ali.air.airwaybill")
-    make_worker(db_session, sea_area, username="wania.sea.airwaybill")
-
-    air_shipment = _accepted_shipment(db_session, mode=TransportMode.AIR)
-    sea_shipment = _accepted_shipment(db_session, mode=TransportMode.SEA)
-    db_session.commit()
-
-    air_token = _login(client, "ali.air.airwaybill")
-    sea_token = _login(client, "wania.sea.airwaybill")
-
-    air_queue_ids = [item["id"] for item in client.get("/worker/queue", headers=_auth_headers(air_token)).json()]
-    sea_queue_ids = [item["id"] for item in client.get("/worker/queue", headers=_auth_headers(sea_token)).json()]
-
-    assert air_shipment.id in air_queue_ids
-    assert air_shipment.id not in sea_queue_ids
-    assert sea_shipment.id in sea_queue_ids
-    assert sea_shipment.id not in air_queue_ids

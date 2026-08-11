@@ -4,7 +4,7 @@ import pytest
 
 import app.models as m
 from app.errors import AmbiguousTrackingReference, NotFound
-from app.models.enums import EventSource, ReferenceType, ShipmentStage, TransportMode, stage_group, stage_label
+from app.models.enums import EventSource, ReferenceType, ShipmentStage
 from app.schemas.tracking import from_shipment
 from app.services.quotes import accept_quote, generate_quote
 from app.services.tracking import find_shipment_for_tracking
@@ -14,10 +14,10 @@ from tests.factories import make_customer, make_inquiry, simple_rate_card
 TODAY = date(2026, 6, 1)
 
 
-def _accepted_shipment(db_session, **inquiry_overrides):
+def _accepted_shipment(db_session):
     customer = make_customer(db_session)
-    simple_rate_card(db_session, mode=inquiry_overrides.get("mode", TransportMode.AIR))
-    inquiry = make_inquiry(db_session, customer, **inquiry_overrides)
+    simple_rate_card(db_session)
+    inquiry = make_inquiry(db_session, customer)
     quote = generate_quote(db_session, inquiry.id, today=TODAY)
     db_session.flush()
     return accept_quote(db_session, quote.id, "ops", today=TODAY)
@@ -173,51 +173,3 @@ def test_job_number_reference_not_duplicated_in_reference_list(db_session):
     # job_number is already the top-level field; it shouldn't also appear
     # redundantly inside the references list.
     assert all(ref.type != ReferenceType.JOB_NUMBER for ref in result.references)
-
-
-# --- mode-aware labels/groups ---
-#
-# Sea walks the identical OPERATIONAL_STAGE_ORDER as air (see
-# test_transitions.py) -- only the display text for one stage and two
-# groups differs. Air's output must stay exactly what it was before mode
-# was a parameter.
-
-
-def test_air_stage_labels_and_groups_unchanged():
-    assert stage_label(ShipmentStage.AIRWAY_BILL, TransportMode.AIR) == "Airway Bill"
-    assert stage_group(ShipmentStage.GATE_IN, TransportMode.AIR) == "Airport"
-    assert stage_group(ShipmentStage.DEPARTURE, TransportMode.AIR) == "Airline"
-    # No mode passed at all -- the pre-existing call shape -- must still work.
-    assert stage_label(ShipmentStage.AIRWAY_BILL) == "Airway Bill"
-    assert stage_group(ShipmentStage.GATE_IN) == "Airport"
-
-
-def test_sea_stage_labels_and_groups_differ_from_air():
-    assert stage_label(ShipmentStage.AIRWAY_BILL, TransportMode.SEA) == "Bill of Lading"
-    assert stage_group(ShipmentStage.GATE_IN, TransportMode.SEA) == "Port"
-    assert stage_group(ShipmentStage.DEPARTURE, TransportMode.SEA) == "Carrier"
-    # Stages with no override fall back to the shared label/group unchanged.
-    assert stage_label(ShipmentStage.CUSTOMS_CLEARANCE, TransportMode.SEA) == "Customs Clearance"
-
-
-def test_meta_stages_endpoint_is_mode_aware(client):
-    air_response = client.get("/meta/stages")
-    sea_response = client.get("/meta/stages?mode=sea")
-    assert air_response.status_code == 200
-    assert sea_response.status_code == 200
-
-    air_stages = {s["stage"]: s for s in air_response.json()["stages"]}
-    sea_stages = {s["stage"]: s for s in sea_response.json()["stages"]}
-
-    assert air_stages["airway_bill"]["label"] == "Airway Bill"
-    assert air_stages["gate_in"]["group"] == "Airport"
-    assert sea_stages["airway_bill"]["label"] == "Bill of Lading"
-    assert sea_stages["gate_in"]["group"] == "Port"
-    # Same stage keys, same order, in both modes.
-    assert list(air_stages.keys()) == list(sea_stages.keys())
-
-
-def test_sea_shipment_checklist_uses_sea_mode(db_session):
-    shipment = _accepted_shipment(db_session, mode=TransportMode.SEA)
-    result = from_shipment(shipment)
-    assert result.mode == TransportMode.SEA
