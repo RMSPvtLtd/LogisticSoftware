@@ -1,0 +1,85 @@
+<style>
+    .grid {
+        text-transform: uppercase;
+        font: normal 1rem/100% "Lato", Helvetica, Arial, sans-serif;
+    }
+</style>
+<section class="bg-inquiries inquiries-content" style="padding-bottom:10px !important">
+    <div class="container">
+
+        <div class="container">
+            <div class="inquiry-wrapper inquiry-wrapper--has-border ">
+                <div style="width: 100%">
+                    <table id="ContainerHistory" class="display text-uppercase grid" width="100%"></table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</section>
+<script>
+    var gGridData;
+    $(document).ready(function() {
+        var data = {"_jsonArray":"[{\u0022container_no\u0022: \u0022N/A\u0022, \u0022formatter\u0022:\u0022yes\u0022}]","gridName":"ContainerHistory","responseMessage":null,"userMessage":null,"isSuccess":true,"redirectURL":null,"httpStatusCode":0};
+        var jsonObj = JSON.parse(data._jsonArray);
+        var methodName = data.gridName;
+        var col = jsonObj[0];
+        var formatter = 0;
+        if (data._jsonArray.indexOf("formatter") !== -1) {
+            formatter = 1;
+        }
+        var str = "[";
+        // console.log(jsonObj);
+        var count = 0;
+        var test = [];
+        $.each(col, function(key, data) {
+            count = count + 1;
+            if (count == 1 && formatter == 1 && methodName == "EmptyPIAContainer") {
+                str += "{\"data" + "\":\"" + key + "\",\"title\":\"" + key + "\"},";
+                test.push({ "data": key, "title": key });
+            }
+            else if (count == 1 && formatter == 1) {
+                str += "{\"data" + "\":\"" + key + "\",\"title\":\"" + key + "\"},";
+                test.push({ "data": key, "title": key, "render": function(data, type, row, meta) { return '<a href="#detailView" return=false; <span onclick=load' + methodName + '(' + meta.row + ')>' + data + '</span></a>' } });
+                //,\"render\": \"function(data, type, row, meta) {if (type === 'display') { return <span>test</span>;} return data;\"},
+            }
+            else if (key != "formatter" && key != "pid") {
+                str += "{\"data" + "\":\"" + key + "\",\"title" + "\":\"" + key + "\"},";
+                test.push({ "data": key, "title": key });
+
+            }
+            else if (key == "pid") {
+                test.push({ "data": key, "title": key, "visible": false });
+            }
+
+
+        });
+        // console.log(test);
+        str = str.replace(/.$/, "]");
+        //console.log(str);
+        var strCol = JSON.parse("[" + str + "]");
+        //console.log(strCol);
+        var defs = strCol[0];
+        defs.push({ "data": "cntrId", "targets": 0, "title": "cntrId", "render": function(data, type, row, meta) { return '<a href="' + data + '">Download</a>' } });
+        // var idColumn = defs[0];
+        // console.log(defs);
+        //defs.forEach(function (a) {
+            //    a.title = a.title.toString().replace("cntrId", 'cntrId,render:function (data) {return \'<a href=\"' + "12" + '\">Edit</a>\';}');
+            //});
+
+            var genericTble = $("#" + data.gridName + "");
+        //genericTble.DataTable.clear();
+        var genericTable = genericTble.DataTable({
+            "data": JSON.parse(data._jsonArray),
+            "order": [],
+            "columns": test,
+            "autoWidth": true
+        }).columns.adjust();
+
+    });
+
+    //function loadCntr(cntrId) {
+    //    var data = $('#genericGridView').DataTable().row(cntrId).data();
+    //    console.log(data['pid']);
+    //}
+</script>

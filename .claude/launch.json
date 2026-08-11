@@ -4,14 +4,26 @@
     {
       "name": "raaziq-backend",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "--directory", "backend", "uvicorn", "app.main:app", "--port", "8000"],
+      "runtimeArgs": ["run", "--directory", "sea-and-air/air", "uvicorn", "main:app", "--app-dir", "backend", "--port", "8000"],
       "port": 8000
     },
     {
       "name": "raaziq-frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "frontend", "--", "--port", "5173"],
+      "runtimeArgs": ["run", "dev", "--prefix", "sea-and-air/air/frontend", "--", "--port", "5173"],
       "port": 5173
+    },
+    {
+      "name": "raaziq-sea-backend",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "--directory", "sea-and-air/sea", "uvicorn", "main:app", "--app-dir", "backend", "--port", "8001"],
+      "port": 8001
+    },
+    {
+      "name": "raaziq-sea-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "sea-and-air/sea/frontend", "--", "--port", "5174"],
+      "port": 5174
     }
   ]
 }
