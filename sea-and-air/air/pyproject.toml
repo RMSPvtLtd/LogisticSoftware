@@ -1,0 +1,52 @@
+[project]
+name = "raaziq-air-backend"
+version = "0.1.0"
+description = "Raaziq freight quotation and shipment tracking MVP backend -- air freight vertical"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "sqlalchemy>=2.0.36",
+    "alembic>=1.14",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "psycopg[binary]>=3.2",
+    "bcrypt>=4.2",
+    "pyjwt>=2.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "httpx>=0.27",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# tests/ lives outside backend/ (a sibling, not a subpackage of it) -- both
+# are added to sys.path here so test files can import backend modules
+# flatly (`from models.x import y`) and shared fixtures flatly too
+# (`from factories import make_customer`), without needing `tests/` or its
+# subdirectories to be Python packages themselves.
+pythonpath = ["backend", "tests"]
+# Only our own code's deprecation warnings are hard errors -- a bare "*"
+# would also catch third-party ones we don't control (e.g. Starlette's own
+# httpx-in-TestClient deprecation notice), which isn't something a passing
+# test suite should have to react to.
+filterwarnings = [
+    "error::DeprecationWarning:models.*",
+    "error::DeprecationWarning:schemas.*",
+    "error::DeprecationWarning:services.*",
+    "error::DeprecationWarning:api.*",
+    "error::DeprecationWarning:integrations.*",
+    "error::DeprecationWarning:utils.*",
+    "error::DeprecationWarning:repositories.*",
+    "error::DeprecationWarning:workers.*",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend"]
