@@ -7,6 +7,7 @@ import { RiskBadge } from "@/components/shared/RiskBadge"
 import { LoadingState, ErrorState, EmptyState } from "@/components/shared/States"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { useAsync } from "@/hooks/useAsync"
 import { useStages } from "@/hooks/useStages"
@@ -14,9 +15,12 @@ import { customersApi, inquiriesApi, shipmentsApi } from "@/lib/api/client"
 import { formatDateTime } from "@/lib/format"
 import type { ShipmentFilters, ShipmentStage } from "@/lib/api/types"
 
+type ListTab = "active" | "completed"
+
 export function ShipmentListPage() {
   const navigate = useNavigate()
   const { stages } = useStages()
+  const [tab, setTab] = useState<ListTab>("active")
   const [filters, setFilters] = useState<ShipmentFilters>({})
 
   const shipments = useAsync(() => shipmentsApi.list(filters), [filters.stage, filters.at_risk])
@@ -30,6 +34,14 @@ export function ShipmentListPage() {
   const inquiryById = useMemo(
     () => new Map((inquiries.data ?? []).map((i) => [i.id, i])),
     [inquiries.data],
+  )
+
+  const visibleShipments = useMemo(
+    () =>
+      (shipments.data ?? []).filter((s) =>
+        tab === "completed" ? s.stage === "invoice_to_customer" : s.stage !== "invoice_to_customer",
+      ),
+    [shipments.data, tab],
   )
 
   const loading = shipments.loading || customers.loading || inquiries.loading
@@ -49,6 +61,13 @@ export function ShipmentListPage() {
         }
       />
 
+      <Tabs value={tab} onValueChange={(v) => setTab(v as ListTab)} className="mb-4">
+        <TabsList>
+          <TabsTrigger value="active">Active</TabsTrigger>
+          <TabsTrigger value="completed">Completed</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Select
           value={filters.stage ?? "all"}
@@ -59,11 +78,13 @@ export function ShipmentListPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All stages</SelectItem>
-            {stages.map((s) => (
-              <SelectItem key={s.stage} value={s.stage}>
-                {s.label}
-              </SelectItem>
-            ))}
+            {stages
+              .filter((s) => s.stage !== "invoice_to_customer")
+              .map((s) => (
+                <SelectItem key={s.stage} value={s.stage}>
+                  {s.label}
+                </SelectItem>
+              ))}
           </SelectContent>
         </Select>
 
@@ -90,14 +111,22 @@ export function ShipmentListPage() {
 
       {loading && <LoadingState rows={5} />}
       {!loading && error && <ErrorState message={error} onRetry={shipments.reload} />}
-      {!loading && !error && (shipments.data?.length ?? 0) === 0 && (
+      {!loading && !error && visibleShipments.length === 0 && (
         <EmptyState
           icon={<Package size={32} />}
-          title={hasActiveFilters ? "No shipments match these filters" : "No shipments yet"}
+          title={
+            tab === "completed"
+              ? "No completed shipments yet"
+              : hasActiveFilters
+                ? "No shipments match these filters"
+                : "No shipments yet"
+          }
           description={
-            hasActiveFilters
-              ? "Try clearing a filter to see more results."
-              : "Accepted quotes automatically appear here as shipments."
+            tab === "completed"
+              ? "Shipments appear here once they've been invoiced."
+              : hasActiveFilters
+                ? "Try clearing a filter to see more results."
+                : "Accepted quotes automatically appear here as shipments."
           }
           action={
             hasActiveFilters ? (
@@ -108,7 +137,7 @@ export function ShipmentListPage() {
           }
         />
       )}
-      {!loading && !error && (shipments.data?.length ?? 0) > 0 && (
+      {!loading && !error && visibleShipments.length > 0 && (
         <div className="overflow-x-auto rounded-xl border border-border">
           <Table>
             <TableHeader>
@@ -122,7 +151,7 @@ export function ShipmentListPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {shipments.data!.map((shipment) => {
+              {visibleShipments.map((shipment) => {
                 const customer = customerById.get(shipment.customer_id)
                 const inquiry = inquiryById.get(shipment.inquiry_id)
                 return (

@@ -3,7 +3,8 @@ lane with multiple rate breaks, four customers, four inquiries carried to
 different points of the workflow (a draft quote, a shipment mid-Airport-
 phase, an accepted shipment marked at risk, and one carried all the way to
 Invoice to Customer), the thirteen worker areas (one per worker-assignable
-stage), and a demo worker account per area.
+stage), a demo worker account per area, and a customer portal login for the
+two higher-volume demo customers.
 
 Sea and road rate cards are not seeded -- this deployment only quotes air
 freight (the TransportMode enum still supports sea/road for later, but no
@@ -26,6 +27,7 @@ from app.db import SessionLocal
 from app.models.enums import ChargeBasis, ChargeKind, EventSource, ShipmentStage, TransportMode, UnitOfMeasure, next_stage
 from app.schemas.inquiries import InquiryCreate
 from app.security import hash_password
+from app.services.customers import grant_portal_access
 from app.services.inquiries import create_inquiry
 from app.services.quotes import accept_quote, generate_quote, send_quote
 from app.services.transitions import advance_stage, set_risk
@@ -34,6 +36,11 @@ SEED_TODAY = date(2026, 6, 1)
 
 # Every worker seeded below shares this password. Demo-only -- see README.
 DEMO_WORKER_PASSWORD = "Worker123!"
+
+# Only the higher-volume demo customers get a portal login, matching how
+# ops would actually use POST /customers/{id}/portal-access -- most
+# customers never get one. Demo-only -- see README.
+DEMO_CUSTOMER_PASSWORD = "Customer123!"
 
 # One area per worker-assignable stage, in pipeline order. A second worker
 # is seeded for Customs Clearance to demonstrate that an area's queue is
@@ -182,6 +189,12 @@ def run(session: Session) -> None:
     orient = _seed_customer(session, name="Orient Traders", company_name="Orient Traders Ltd", email="logistics@orienttraders.pk", phone="+92-21-1110002")
     hamid = _seed_customer(session, name="Hamid Motors", company_name="Hamid Motors Karachi", email="shipping@hamidmotors.pk", phone="+92-21-1110003")
     zainab = _seed_customer(session, name="Zainab Enterprises", company_name="Zainab Enterprises Ltd", email="trade@zainabenterprises.pk", phone="+92-42-1110004")
+
+    # Orient Traders and Zainab Enterprises are the "significant volume"
+    # clients who get a portal login -- one with an active shipment, one
+    # with a completed one, so both dashboard states are demoable.
+    grant_portal_access(session, orient, username="orient.traders", password=DEMO_CUSTOMER_PASSWORD)
+    grant_portal_access(session, zainab, username="zainab.enterprises", password=DEMO_CUSTOMER_PASSWORD)
 
     inq_draft = _seed_inquiry(session, customer=bilal, cargo_type="Garments", weight_kg=Decimal("120"), volume_cbm=Decimal("0.6"), incoterm="DAP", tag="draft-quote")
     inq_mid = _seed_inquiry(session, customer=orient, cargo_type="Electronics components", weight_kg=Decimal("340"), volume_cbm=Decimal("1.8"), incoterm="FOB", tag="mid-airport")

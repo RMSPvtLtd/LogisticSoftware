@@ -67,7 +67,7 @@ class TrackingIngestionFailed(DomainError):
 
 
 class Unauthorized(DomainError):
-    """Missing, invalid, or expired worker credentials/token, or the
-    account is deactivated."""
+    """Missing, invalid, or expired worker/customer credentials or token, or
+    the account is deactivated."""
 
     http_status = 401

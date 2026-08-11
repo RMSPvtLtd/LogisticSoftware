@@ -31,6 +31,15 @@ def make_customer(session: Session, **overrides) -> m.Customer:
     return customer
 
 
+def make_customer_with_portal(
+    session: Session, *, password: str = "Customer123!", **overrides
+) -> m.Customer:
+    overrides.setdefault("username", f"customer-{uuid.uuid4().hex[:10]}")
+    overrides["password_hash"] = hash_password(password)
+    overrides["portal_active"] = True
+    return make_customer(session, **overrides)
+
+
 def make_rate_card(
     session: Session,
     *,

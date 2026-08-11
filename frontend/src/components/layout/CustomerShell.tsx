@@ -1,22 +1,30 @@
-import { NavLink, Outlet } from "react-router-dom"
-import { MagnifyingGlass, Package, Plus, Truck, UserCircle, Users } from "@phosphor-icons/react"
+import { NavLink, Outlet, useNavigate } from "react-router-dom"
+import { Package, Receipt, SignOut, Truck } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 import { ThemeToggle } from "@/components/shared/ThemeToggle"
+import { Button } from "@/components/ui/button"
+import { useCustomerAuth } from "@/hooks/useCustomerAuth"
 
 const NAV_LINKS = [
-  { to: "/shipments", label: "Shipments", icon: Package },
-  { to: "/quotes/new", label: "New Quote", icon: Plus },
-  { to: "/workers", label: "Workers", icon: Users },
-  { to: "/customers", label: "Customers", icon: UserCircle },
+  { to: "/customer/shipments", label: "Shipments", icon: Package },
+  { to: "/customer/quotes", label: "Quotes", icon: Receipt },
 ]
 
-export function OpsShell() {
+export function CustomerShell() {
+  const { customer, logout } = useCustomerAuth()
+  const navigate = useNavigate()
+
+  function handleLogout() {
+    logout()
+    navigate("/customer/login")
+  }
+
   return (
     <div className="min-h-dvh bg-background">
       <header className="sticky top-0 z-40 border-b border-border bg-card">
-        <div className="mx-auto flex h-14 max-w-7xl items-center gap-2 px-3 sm:gap-6 sm:px-6">
+        <div className="mx-auto flex h-14 max-w-5xl items-center gap-2 px-3 sm:gap-6 sm:px-6">
           <NavLink
-            to="/shipments"
+            to="/customer/shipments"
             className="flex shrink-0 items-center gap-2 font-heading text-base font-semibold text-foreground"
           >
             <Truck size={22} weight="fill" className="text-accent-foreground" />
@@ -43,21 +51,17 @@ export function OpsShell() {
             ))}
           </nav>
           <div className="ml-auto flex items-center gap-1">
-            <a
-              href="/track"
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Customer tracking"
-              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:px-3"
-            >
-              <MagnifyingGlass size={16} />
-              <span className="hidden sm:inline">Customer tracking</span>
-            </a>
+            {customer && (
+              <span className="hidden truncate text-sm text-muted-foreground sm:inline">{customer.name}</span>
+            )}
             <ThemeToggle />
+            <Button variant="ghost" size="icon" aria-label="Sign out" onClick={handleLogout}>
+              <SignOut size={18} />
+            </Button>
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
+      <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
         <Outlet />
       </main>
     </div>

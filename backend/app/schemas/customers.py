@@ -28,5 +28,20 @@ class CustomerRead(BaseModel):
     company_name: str | None
     email: str
     phone: str | None
+    username: str | None
+    portal_active: bool
     created_at: datetime
     updated_at: datetime
+
+
+class CustomerPortalCredentials(BaseModel):
+    """Ops-only: (re)issues a customer's portal login. Sets a new username
+    and password and enables access in one step -- there's no separate
+    "create username" and "set password" action."""
+
+    username: str = Field(min_length=3, max_length=60, pattern=r"^[a-zA-Z0-9._-]+$")
+    password: str = Field(min_length=6, max_length=200)
+
+
+class CustomerPortalUpdate(BaseModel):
+    is_active: bool

@@ -45,8 +45,15 @@ export interface Customer {
   company_name: string | null
   email: string
   phone: string | null
+  username: string | null
+  portal_active: boolean
   created_at: string
   updated_at: string
+}
+
+export interface CustomerPortalCredentials {
+  username: string
+  password: string
 }
 
 export interface CustomerCreate {
@@ -231,4 +238,22 @@ export interface WorkerQueueItem {
   cargo_type: string
   waiting_since: string
   last_note: string | null
+}
+
+// --- customer portal ---
+
+export interface CustomerLoginResponse {
+  access_token: string
+  token_type: string
+  customer: Customer
+}
+
+export interface CustomerShipmentSummary {
+  id: number
+  job_number: string | null
+  origin: string
+  destination: string
+  stage: ShipmentStage
+  is_at_risk: boolean
+  updated_at: string
 }

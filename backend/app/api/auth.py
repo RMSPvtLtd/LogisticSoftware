@@ -14,7 +14,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/login", response_model=LoginResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
     worker = authenticate_worker(db, payload.username, payload.password)
-    token = create_access_token(worker.id)
+    token = create_access_token(worker.id, "worker")
     return LoginResponse(access_token=token, worker=worker)
 
 

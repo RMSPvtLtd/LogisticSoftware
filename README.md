@@ -3,8 +3,10 @@
 Raaziq MVP: a Pakistan-based air-freight forwarder's two core workflows — freight
 quotation automation, and shipment tracking across the forwarding lifecycle — plus a
 worker portal so warehouse/ops staff mark their own stage done instead of a single admin
-updating everything. A FastAPI backend and a React frontend with three surfaces: the ops
-dashboard, the worker portal, and the public customer tracking page.
+updating everything, and a customer portal for higher-volume clients who'd rather log in
+and see everything in one place than track shipments one reference at a time. A FastAPI
+backend and a React frontend with four surfaces: the ops dashboard, the worker portal, the
+customer portal, and the public customer tracking page.
 
 ## Stack
 
@@ -25,13 +27,17 @@ backend/
 │   ├── db.py               engine, session factory, get_db dependency
 │   ├── errors.py           domain exceptions -> HTTP status mapping
 │   ├── dependencies.py     current_actor (ops side has no login; isolated for later)
-│   ├── security.py         worker auth: password hashing, JWT, get_current_worker
+│   ├── security.py         worker + customer auth: password hashing, JWT (subject-typed),
+│   │                        get_current_worker / get_current_customer
 │   ├── models/              SQLAlchemy models + the sole owner of stage ordering (enums.py)
 │   ├── schemas/             Pydantic request/response models
-│   ├── services/            business logic: pricing, quotes, transitions, tracking, workers
+│   ├── services/            business logic: pricing, quotes, transitions, tracking,
+│   │                         workers, customers
 │   ├── adapters/             TrackingAdapter protocol + MockTrackingAdapter
-│   └── api/                  FastAPI routers (incl. auth, workers, worker_portal)
-├── alembic/versions/         three migrations (initial schema, worker areas, 17-stage pipeline)
+│   └── api/                  FastAPI routers (incl. auth, workers, worker_portal,
+│                               customers, customer_portal)
+├── alembic/versions/         four migrations (initial schema, worker areas, 17-stage
+│                              pipeline, customer portal access)
 ├── seeds/seed.py              idempotent demo data
 └── tests/                     pytest suite (SQLite, no external DB needed)
 
@@ -42,14 +48,19 @@ frontend/
 │   ├── lib/
 │   │   ├── api/                 typed fetch client mirroring the backend schemas
 │   │   └── format.ts            money/date formatting helpers
-│   ├── hooks/                   useStages, useAsync, useWorkerAuth (worker login/session)
+│   ├── hooks/                   useStages, useAsync, useWorkerAuth, useCustomerAuth
+│   │                             (worker/customer login+session are separate contexts)
 │   ├── components/
 │   │   ├── ui/                   shadcn/ui primitives
-│   │   ├── layout/                OpsShell (staff nav) / PublicShell (tracking page)
+│   │   ├── layout/                OpsShell (staff nav) / PublicShell (tracking page) /
+│   │   │                          CustomerShell (customer portal nav)
 │   │   ├── shared/                StageBadge, RiskBadge, StageChecklist, EventTimeline, ...
 │   │   └── quotes/                InquiryForm, QuoteBreakdown
 │   └── pages/                    ShipmentListPage, ShipmentDetailPage, QuoteFlowPage,
-│                                  TrackingPage, WorkersAdminPage, WorkerLoginPage, WorkerQueuePage
+│                                  TrackingPage, WorkersAdminPage, CustomersAdminPage,
+│                                  WorkerLoginPage, WorkerQueuePage, CustomerLoginPage,
+│                                  CustomerShipmentsPage, CustomerShipmentDetailPage,
+│                                  CustomerQuotesPage, CustomerQuoteDetailPage
 ```
 
 ## Local setup
@@ -72,8 +83,10 @@ See `backend/.env.example` for the full list with defaults:
   are unused in practice — see "Air freight only" below).
 - `JOB_NUMBER_PREFIX`, `JOB_NUMBER_PADDING` — job number format, e.g. `RAZ-2026-00001`.
 - `CORS_ORIGINS`, `DEFAULT_ACTOR`.
-- `JWT_SECRET_KEY`, `JWT_EXPIRY_MINUTES` — sign/expire worker portal login tokens. **Change
-  `JWT_SECRET_KEY` before deploying anywhere real** — the default is dev-only.
+- `JWT_SECRET_KEY`, `JWT_EXPIRY_MINUTES` — sign/expire worker and customer portal login
+  tokens (each token carries a `typ` claim, so a worker's token and a customer's token are
+  never interchangeable even if the two ids happen to collide). **Change `JWT_SECRET_KEY`
+  before deploying anywhere real** — the default is dev-only.
 
 `.env` is never committed (see `.gitignore`).
 
@@ -118,6 +131,14 @@ uv run python -m seeds.seed
 Demo-only credentials for local development — not meant for any real deployment.
 "Invoice to Customer", the final stage, has no worker area — ops marks it directly (see
 "Worker portal & areas" below).
+
+**Demo customer portal logins** (password `Customer123!`) — only the two higher-volume
+demo customers get one, matching how ops would actually grant access:
+
+| Username | Customer | Demoes |
+|---|---|---|
+| `orient.traders` | Orient Traders | An active shipment (Customs Examination) |
+| `zainab.enterprises` | Zainab Enterprises | A completed/invoiced shipment + an accepted quote |
 
 ### Run the server
 
@@ -167,11 +188,14 @@ backend's URL.
   items while in draft, then send/accept. Accepting allocates the job number and advances
   the existing shipment to Job Opening.
 - `/workers` — admin: create worker accounts, assign them to an area, deactivate accounts.
+- `/customers` — admin: list customers, grant/reset a portal login, deactivate one.
 - `/worker/login` → `/worker/queue` — the worker portal (real login required; see below).
-- `/track` → `/track/:reference` — the public, unauthenticated customer view. Looks up by
-  job number or any reference (MAWB/HAWB/MBL/HBL/container) and renders only what
-  `GET /tracking/{reference}` returns — no pricing, no internal notes, no risk reason ever
-  reaches this page, by construction on the backend.
+- `/customer/login` → `/customer/shipments`, `/customer/quotes` — the customer portal (real
+  login required; see "Customer portal" below).
+- `/track` → `/track/:reference` — the public, unauthenticated customer view (for customers
+  without a portal login). Looks up by job number or any reference (MAWB/HAWB/MBL/HBL/
+  container) and renders only what `GET /tracking/{reference}` returns — no pricing, no
+  internal notes, no risk reason ever reaches this page, by construction on the backend.
 
 ### Design system
 
@@ -186,6 +210,8 @@ Sans 3 for body text. The stage order and human-readable labels are fetched once
 
 ```
 POST/GET  /customers · /customers/{id}
+POST      /customers/{id}/portal-access        ops-only; (re)issues a customer's portal login
+PATCH     /customers/{id}/portal-access         ops-only; { is_active } to enable/disable it
 POST/GET  /inquiries · /inquiries/{id}         creating an inquiry also creates its Shipment (stage=inquiry)
 
 POST      /quotes/generate                     advances the shipment inquiry -> quotation
@@ -209,6 +235,14 @@ GET       /auth/me                     resolve the current token to a worker
 
 GET       /worker/queue                requires a worker token; shipments waiting for their area
 POST      /worker/shipments/{id}/complete   advances the shipment into the worker's area stage
+
+POST      /customer/login              customer login -> bearer token
+GET       /customer/me                 resolve the current token to a customer
+
+GET       /customer/shipments          requires a customer token; own shipments only, ?completed=true|false
+GET       /customer/shipments/{id}     customer-safe (same shape as GET /tracking/{reference})
+GET       /customer/quotes             requires a customer token; own quotes only, full pricing
+GET       /customer/quotes/{id}
 
 GET       /areas                       admin, unauthenticated (same trust level as ops)
 GET/POST  /workers · PATCH /workers/{id}    admin: create/list/(de)activate worker accounts
@@ -297,6 +331,38 @@ are independent of stage. Admins manage worker accounts at `/workers` (`POST /wo
 `PATCH /workers/{id}` to deactivate/reassign) — that side stays unauthenticated like the
 rest of ops, matching `current_actor`.
 
+## Customer portal
+
+Most customers have no login at all — they're tracked by ops and use the public
+`/track/:reference` page if they want to check status themselves. For higher-volume
+clients, ops can grant a portal login from `/customers` (`POST /customers/{id}/portal-access`),
+which sets a username/password on the existing `Customer` row directly (`username`,
+`password_hash`, `portal_active` — nullable, so most customers simply never have them set).
+There is no self-service signup; a customer can never create or change their own
+credentials.
+
+A customer signs in at `/customer/login` and lands on `/customer/shipments`: every
+shipment that belongs to them, split into **Active** and **Completed** tabs (`?completed=`
+on `GET /customer/shipments`) so a client with many shipments a day isn't stuck scrolling
+past ones that are already done. Shipment detail (`GET /customer/shipments/{id}`) reuses
+the exact same customer-safe shape as the public tracking endpoint — pricing, internal
+notes, and `risk_reason` never reach it — just scoped to a logged-in identity instead of a
+reference lookup. `/customer/quotes` additionally shows the customer their own quotes with
+full pricing, since (unlike a shipment) a quote is inherently theirs to see priced out.
+
+Every route in `app/api/customer_portal.py` resolves the customer from the bearer token via
+`get_current_customer`, then scopes its query to that customer's id in
+`app.services.customers` — no route accepts a customer id from the request, so one
+customer can never address another's data by guessing an id (`GET /customer/shipments/3`
+for a shipment that isn't yours returns a plain 404, identical to a nonexistent id).
+Worker and customer tokens carry a `typ` claim and are checked against it on decode (see
+`app/security.py`), so a worker's token can never be replayed against a customer route or
+vice versa.
+
+Ops sees the same Active/Completed split on the main `/shipments` dashboard (a client-side
+tab over the already-loaded list, keyed on `stage === "invoice_to_customer"`) rather than
+having to remember to set the stage filter manually.
+
 ## Air freight only
 
 Raaziq currently only forwards air freight. `TransportMode` still has `sea` and `road` in
@@ -353,8 +419,9 @@ path as any other stage change.
 
 ## What's out of scope for this MVP
 
-Ops-side login (still `current_actor`, unauthenticated — only the worker portal has real
-accounts), predictive ETA, AI pricing or shipment prediction, GPS/IoT, live WeBOC/PSW
+Ops-side login (still `current_actor`, unauthenticated — only the worker and customer
+portals have real accounts), self-service customer signup (portal access is ops-granted
+only), predictive ETA, AI pricing or shipment prediction, GPS/IoT, live WeBOC/PSW
 integration, ShipsGo/carrier API integration, multi-carrier RFQ automation, live spot-rate
 feeds, accounting/ERP integration, actual invoice generation/PDF/email (the "Invoice to
 Customer" stage only records that ops sent one — it doesn't produce or send anything

@@ -7,6 +7,9 @@ import type {
   Area,
   Customer,
   CustomerCreate,
+  CustomerLoginResponse,
+  CustomerPortalCredentials,
+  CustomerShipmentSummary,
   Inquiry,
   InquiryCreate,
   LineItemOverride,
@@ -73,6 +76,13 @@ export const customersApi = {
   get: (id: number) => request<Customer>(`/customers/${id}`),
   create: (payload: CustomerCreate) =>
     request<Customer>("/customers", { method: "POST", body: JSON.stringify(payload) }),
+  grantPortalAccess: (id: number, payload: CustomerPortalCredentials) =>
+    request<Customer>(`/customers/${id}/portal-access`, { method: "POST", body: JSON.stringify(payload) }),
+  setPortalActive: (id: number, isActive: boolean) =>
+    request<Customer>(`/customers/${id}/portal-access`, {
+      method: "PATCH",
+      body: JSON.stringify({ is_active: isActive }),
+    }),
 }
 
 // --- inquiries ---
@@ -152,6 +162,25 @@ export const workerPortalApi = {
 
 function authHeader(token: string): HeadersInit {
   return { Authorization: `Bearer ${token}` }
+}
+
+// --- customer auth (customer portal login) ---
+
+export const customerAuthApi = {
+  login: (username: string, password: string) =>
+    request<CustomerLoginResponse>("/customer/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+  me: (token: string) => request<Customer>("/customer/me", { headers: authHeader(token) }),
+}
+
+// --- customer portal (requires a customer's own bearer token) ---
+
+export const customerPortalApi = {
+  shipments: (token: string, completed?: boolean) =>
+    request<CustomerShipmentSummary[]>(`/customer/shipments${qs({ completed })}`, { headers: authHeader(token) }),
+  shipment: (token: string, id: number) =>
+    request<TrackingResult>(`/customer/shipments/${id}`, { headers: authHeader(token) }),
+  quotes: (token: string) => request<Quote[]>("/customer/quotes", { headers: authHeader(token) }),
+  quote: (token: string, id: number) => request<Quote>(`/customer/quotes/${id}`, { headers: authHeader(token) }),
 }
 
 // --- admin: areas + workers (unauthenticated, same trust level as the rest of the ops API) ---
