@@ -11,8 +11,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # Browser origins allowed to call this API.
-    cors_origins: str = "http://localhost:5174"
+    # Browser origins allowed to call this API. In practice the air
+    # frontend's dev server proxies /sea-api/* to this backend server-side
+    # (see air/frontend/vite.config.ts), so the browser itself never makes
+    # a cross-origin request here -- this exists as a direct-access
+    # safeguard/default, not something the normal request path depends on.
+    cors_origins: str = "http://localhost:5173"
 
     # SAPT (South Asia Pakistan Terminals) is the first tracking provider.
     # Its base URL is configurable rather than hardcoded in the connector so

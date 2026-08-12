@@ -193,6 +193,57 @@ export interface TrackingResult {
   at_risk: boolean
 }
 
+// --- sea vertical: container tracking (separate backend, see
+// sea-and-air/sea/backend/schemas/tracking.py -- mirrors that shape
+// exactly, "Sea"-prefixed here only to avoid colliding with air's own
+// TrackingResult/TrackingEvent above, which are a different shape) ---
+
+export interface SeaTrackingEvent {
+  type: string
+  timestamp: string | null
+}
+
+export interface SeaContainerDetail {
+  owner: string | null
+  bl_number: string | null
+  container_size_type: string | null
+  category: string | null
+  status_code: string | null
+  vessel_voyage: string | null
+  vir_number: string | null
+  eta: string | null
+  etd: string | null
+  discharge_time: string | null
+  load_time: string | null
+  do_issuance_date: string | null
+  do_expiry_date: string | null
+  gate_in_time: string | null
+  gate_out_time: string | null
+  origin: string | null
+  destination: string | null
+  custom_seal_number: string | null
+  line_seal_number: string | null
+  security_seal_number: string | null
+  other_seal_number: string | null
+  custom_status: string | null
+  current_position: string | null
+  commodity: string | null
+  weight: string | null
+  weighment: string | null
+  scanning: string | null
+  present_holds: string | null
+}
+
+export interface SeaTrackingResult {
+  provider: string
+  terminal: string
+  container_number: string
+  status: string
+  status_code: string | null
+  events: SeaTrackingEvent[]
+  details: SeaContainerDetail[]
+}
+
 export interface StageMeta {
   stage: ShipmentStage
   label: string

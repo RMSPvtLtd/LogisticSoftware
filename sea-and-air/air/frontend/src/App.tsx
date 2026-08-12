@@ -39,6 +39,8 @@ function App() {
 
         <Route element={<PublicShell />}>
           <Route path="/track" element={<TrackingPage />} />
+          <Route path="/track/sea" element={<TrackingPage />} />
+          <Route path="/track/sea/:containerNumber" element={<TrackingPage />} />
           <Route path="/track/:reference" element={<TrackingPage />} />
         </Route>
 

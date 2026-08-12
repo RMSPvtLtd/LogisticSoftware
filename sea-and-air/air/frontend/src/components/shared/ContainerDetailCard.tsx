@@ -1,13 +1,13 @@
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
-import type { ContainerDetail } from "@/lib/api/types"
+import type { SeaContainerDetail } from "@/lib/api/types"
 
 // Every field SAPT's per-voyage detail table exposes, grouped the way the
 // source table groups them, with a fallback dash for anything the provider
 // didn't have. Field values are provider-formatted strings (dates included)
 // -- shown as-is, not reformatted, since they're supplementary detail
 // rather than the primary timeline (which does get reformatted).
-const FIELD_GROUPS: { title: string; fields: [string, keyof ContainerDetail][] }[] = [
+const FIELD_GROUPS: { title: string; fields: [string, keyof SeaContainerDetail][] }[] = [
   {
     title: "Voyage",
     fields: [
@@ -54,7 +54,7 @@ const FIELD_GROUPS: { title: string; fields: [string, keyof ContainerDetail][] }
   },
 ]
 
-export function ContainerDetailCard({ detail }: { detail: ContainerDetail }) {
+export function ContainerDetailCard({ detail }: { detail: SeaContainerDetail }) {
   return (
     <Card>
       <CardContent className="space-y-5 py-6">

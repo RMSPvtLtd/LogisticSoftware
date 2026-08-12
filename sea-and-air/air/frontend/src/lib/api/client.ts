@@ -15,6 +15,7 @@ import type {
   LineItemOverride,
   LoginResponse,
   Quote,
+  SeaTrackingResult,
   Shipment,
   ShipmentFilters,
   StageMeta,
@@ -25,6 +26,10 @@ import type {
 } from "./types"
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api"
+// The sea vertical is a separate backend (see sea-and-air/sea/) reached
+// through its own dev-server proxy path -- see vite.config.ts's /sea-api
+// rule -- rather than air's own /api base above.
+const SEA_BASE_URL = import.meta.env.VITE_SEA_API_BASE_URL ?? "/sea-api"
 
 export class ApiError extends Error {
   status: number
@@ -35,8 +40,8 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+async function request<T>(path: string, init?: RequestInit, base: string = BASE_URL): Promise<T> {
+  const res = await fetch(`${base}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -132,6 +137,19 @@ export const shipmentsApi = {
 
 export const trackingApi = {
   track: (reference: string) => request<TrackingResult>(`/tracking/${encodeURIComponent(reference)}`),
+}
+
+// --- sea vertical: container tracking (separate backend, see
+// sea-and-air/sea/) -- POST /tracking here maps to the sea backend's own
+// POST /api/tracking, since SEA_BASE_URL already includes the /sea-api
+// prefix the dev proxy rewrites to /api.
+export const seaTrackingApi = {
+  track: (containerNumber: string) =>
+    request<SeaTrackingResult>(
+      "/tracking",
+      { method: "POST", body: JSON.stringify({ container_number: containerNumber }) },
+      SEA_BASE_URL,
+    ),
 }
 
 // --- meta ---

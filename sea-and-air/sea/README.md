@@ -1,24 +1,33 @@
-# Raaziq Sea — Container Tracker
+# Raaziq Sea — Container Tracking Backend
 
 The sea vertical's first feature: a customer enters a container number and gets its
-tracking status and full voyage detail through Raaziq's own UI and backend. The first
-(and currently only) data source is SAPT (South Asia Pakistan Terminals) — but SAPT is
-never visible to the user, and never called from the browser. Everything about SAPT is
-isolated behind a provider abstraction so a second terminal, port, or shipping line can be
-added later without rewriting the tracker.
+tracking status and full voyage detail. The first (and currently only) data source is SAPT
+(South Asia Pakistan Terminals) — but SAPT is never visible to the user, and never called
+from the browser. Everything about SAPT is isolated behind a provider abstraction so a
+second terminal, port, or shipping line can be added later without rewriting the tracker.
 
-This is a separate, self-contained project from [`../air`](../air) — its own backend, its
-own frontend, no shared database, no shared code. See [`../README.md`](../README.md) for
-how the two verticals relate.
+**This is backend-only.** There is no `sea/frontend/` — the customer-facing UI for sea
+tracking lives in [`../air/frontend`](../air/frontend)'s public tracking page, as an
+Air/Sea toggle, so customers have one page and one URL for tracking either kind of
+shipment rather than two separate sites. Air's dev server proxies `/sea-api/*` to this
+backend (see `../air/frontend/vite.config.ts`) — the browser only ever talks to air's
+frontend origin, never to this backend directly, and never to SAPT. This backend is
+otherwise still a fully separate project (own `pyproject.toml`/`uv.lock`, own process, own
+port) from air's — see [`../README.md`](../README.md) for how the two verticals relate,
+and why the UI is unified while the backends stay independent.
 
 ## Architecture
 
 ```
-Browser
+Browser (air's frontend origin, :5173)
    │
    ▼
-POST /api/tracking            (Raaziq Sea's own API — never SAPT)
-   │
+POST /sea-api/tracking          (air's Vite dev server -- proxied server-side,
+   │                              not a cross-origin browser request; see
+   │                              air/frontend/vite.config.ts)
+   ▼
+POST /api/tracking               (this backend, :8001 — never SAPT, never
+   │                               reached directly from the browser)
    ▼
 services.tracking_service.track_container()
    │
@@ -38,7 +47,7 @@ integrations.tracking.sapt.SAPTProvider
 Normalized TrackingResult (schemas/tracking.py) — provider-independent shape
    │
    ▼
-Sea Tracker page: status + timeline + one detail card per voyage
+air/frontend's TrackingPage (Sea mode): status + timeline + one detail card per voyage
 ```
 
 Adding a second provider means writing a new module under `backend/integrations/` (its own
@@ -104,19 +113,21 @@ its own reference data) rather than pre-building it speculatively.
 
 ## Frontend
 
-React + Vite + TS + Tailwind + shadcn, mirroring `../air/frontend`'s stack and design
-tokens (same navy/slate palette, same component primitives) so it reads as the same
-product family. A single "Track" tab today — the nav in `SeaShell.tsx` is where future
-sea-vertical sections would be added as it grows.
+There isn't one here — see "This is backend-only" above. The UI lives in
+[`../air/frontend/src/pages/TrackingPage.tsx`](../air/frontend/src/pages/TrackingPage.tsx),
+which renders an Air/Sea toggle and, in Sea mode, calls this backend through the proxy
+(`../air/frontend/src/lib/api/client.ts`'s `seaTrackingApi`). The result/timeline/detail-
+card components it uses (`ContainerTimeline.tsx`, `ContainerDetailCard.tsx`) live alongside
+it in `air/frontend/src/components/shared/` — reusing air's own design tokens and shadcn
+primitives, so it reads as the same product rather than a bolted-on second app.
 
-```bash
-cd sea-and-air/sea/frontend
-npm install
-npm run dev   # http://localhost:5174, proxies /api to the backend on :8001
-```
+To run the full sea tracking experience locally, both this backend (`:8001`, below) and
+air's frontend + backend (`:5173` / `:8000`, see `../air/README.md`) need to be running —
+`/track/sea` on air's frontend is the entry point.
 
-- `/track` — search form.
-- `/track/:containerNumber` — search + result (shareable/bookmarkable URL).
+- `/track` — Air mode (default).
+- `/track/sea` — Sea mode search form.
+- `/track/sea/:containerNumber` — Sea mode search + result (shareable/bookmarkable URL).
 
 ### What the page shows
 
