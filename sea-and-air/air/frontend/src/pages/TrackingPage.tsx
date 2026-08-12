@@ -64,7 +64,7 @@ export function TrackingPage() {
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={mode === "sea" ? "e.g. CAAU2314798" : "e.g. RAZ-2026-00001"}
+            placeholder={mode === "sea" ? "e.g. TESU1234565" : "e.g. RAZ-2026-00001"}
             className="text-center tabular-nums uppercase sm:text-left"
             aria-label={mode === "sea" ? "Container number" : "Shipment reference number"}
           />
