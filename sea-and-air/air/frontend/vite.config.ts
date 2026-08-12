@@ -13,6 +13,15 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      // The sea backend's own routes are already prefixed with /api (see
+      // sea-and-air/sea/backend/api/tracking.py), so this rewrite maps
+      // /sea-api/tracking -> :8001/api/tracking -- checked before the
+      // plain /api rule below, since /sea-api also starts with /api.
+      "/sea-api": {
+        target: "http://localhost:8001",
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/sea-api/, "/api"),
+      },
       "/api": {
         target: "http://localhost:8000",
         changeOrigin: true,

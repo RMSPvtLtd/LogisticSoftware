@@ -1,12 +1,13 @@
 import { CheckCircle } from "@phosphor-icons/react"
 import { formatDateTime } from "@/lib/format"
-import type { TrackingEvent } from "@/lib/api/types"
+import type { SeaTrackingEvent } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
 
-// Renders the tracking events the API returns, already sorted most-recent-
-// first by the backend -- this component doesn't re-sort or interpret
-// event types, it just displays whatever list it's given.
-export function Timeline({ events }: { events: TrackingEvent[] }) {
+// The sea vertical's container-tracking timeline -- named distinctly from
+// EventTimeline (air's own stage-history component) since the two render
+// different shapes (SeaTrackingEvent vs air's TrackingEvent) from two
+// different backends. Events arrive already sorted most-recent-first.
+export function ContainerTimeline({ events }: { events: SeaTrackingEvent[] }) {
   return (
     <ol className="flex flex-col">
       {events.map((event, i) => (

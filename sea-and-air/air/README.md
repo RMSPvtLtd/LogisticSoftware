@@ -223,6 +223,12 @@ The dev server proxies `/api/*` to `http://localhost:8000` (see `vite.config.ts`
 the backend (per above) alongside it — no CORS configuration needed in dev. For a non-dev
 deployment, set `VITE_API_BASE_URL` to the backend's URL.
 
+It also proxies `/sea-api/*` to `http://localhost:8001` — the sea vertical's backend (see
+[`../sea/README.md`](../sea/README.md)) — for the Sea mode of the tracking page. Run that
+backend too if you want Sea mode to work locally; Air mode works without it.
+`VITE_SEA_API_BASE_URL` overrides that base path the same way `VITE_API_BASE_URL` does for
+air's own API.
+
 - `npm run build` — type-checks (`tsc -b`) and produces a production bundle in `dist/`.
 - `npm run lint` — oxlint.
 
@@ -249,6 +255,13 @@ deployment, set `VITE_API_BASE_URL` to the backend's URL.
   without a portal login). Looks up by job number or any reference (MAWB/HAWB/MBL/HBL/
   container) and renders only what `GET /tracking/{reference}` returns — no pricing, no
   internal notes, no risk reason ever reaches this page, by construction on the backend.
+  An **Air / Sea toggle** at the top of this page switches to `/track/sea` →
+  `/track/sea/:containerNumber`, which searches sea containers instead — a completely
+  different backend (`../sea`, proxied through this dev server's `/sea-api/*` rule in
+  `vite.config.ts`) and result shape, but the same page and URL space, so customers have
+  one place to track either kind of shipment. See [`../sea/README.md`](../sea/README.md)
+  for that backend; the Sea-mode result view and its components
+  (`ContainerTimeline.tsx`, `ContainerDetailCard.tsx`) live in this frontend, not there.
 
 ### Design system
 
