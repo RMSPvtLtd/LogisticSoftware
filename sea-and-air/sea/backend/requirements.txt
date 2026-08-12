@@ -1,0 +1,11 @@
+# For the Vercel Python deployment only -- local dev uses pyproject.toml/
+# uv.lock via `uv sync` as usual (see ../README.md). Vercel's Python
+# builder installs from requirements.txt, not pyproject.toml, so this
+# mirrors the direct dependencies pinned there, resolved to the exact
+# versions this app has actually been tested against (see uv.lock).
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+pydantic==2.13.4
+pydantic-settings==2.15.0
+httpx==0.28.1
+beautifulsoup4==4.15.0
