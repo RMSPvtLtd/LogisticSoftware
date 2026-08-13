@@ -4,6 +4,7 @@ import { Package } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { StageBadge } from "@/components/shared/StageBadge"
 import { RiskBadge } from "@/components/shared/RiskBadge"
+import { PriorityBadge } from "@/components/shared/PriorityBadge"
 import { LoadingState, ErrorState, EmptyState } from "@/components/shared/States"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -23,7 +24,7 @@ export function ShipmentListPage() {
   const [tab, setTab] = useState<ListTab>("active")
   const [filters, setFilters] = useState<ShipmentFilters>({})
 
-  const shipments = useAsync(() => shipmentsApi.list(filters), [filters.stage, filters.at_risk])
+  const shipments = useAsync(() => shipmentsApi.list(filters), [filters.stage, filters.at_risk, filters.priority])
   const customers = useAsync(() => customersApi.list(), [])
   const inquiries = useAsync(() => inquiriesApi.list(), [])
 
@@ -47,7 +48,8 @@ export function ShipmentListPage() {
   const loading = shipments.loading || customers.loading || inquiries.loading
   const error = shipments.error ?? customers.error ?? inquiries.error
 
-  const hasActiveFilters = filters.stage !== undefined || filters.at_risk !== undefined
+  const hasActiveFilters =
+    filters.stage !== undefined || filters.at_risk !== undefined || filters.priority !== undefined
 
   return (
     <div>
@@ -102,6 +104,23 @@ export function ShipmentListPage() {
           </SelectContent>
         </Select>
 
+        <Select
+          value={filters.priority ?? "all"}
+          onValueChange={(v) =>
+            setFilters((f) => ({ ...f, priority: v === "all" ? undefined : (v as ShipmentFilters["priority"]) }))
+          }
+        >
+          <SelectTrigger className="w-40" aria-label="Filter by priority">
+            <SelectValue placeholder="All priorities" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All priorities</SelectItem>
+            <SelectItem value="low">Low</SelectItem>
+            <SelectItem value="medium">Medium</SelectItem>
+            <SelectItem value="high">High</SelectItem>
+          </SelectContent>
+        </Select>
+
         {hasActiveFilters && (
           <Button variant="ghost" size="sm" onClick={() => setFilters({})}>
             Clear filters
@@ -146,6 +165,7 @@ export function ShipmentListPage() {
                 <TableHead>Customer</TableHead>
                 <TableHead>Route</TableHead>
                 <TableHead>Stage</TableHead>
+                <TableHead>Priority</TableHead>
                 <TableHead>Last Updated</TableHead>
                 <TableHead>Risk</TableHead>
               </TableRow>
@@ -175,6 +195,9 @@ export function ShipmentListPage() {
                     </TableCell>
                     <TableCell>
                       <StageBadge stage={shipment.stage} />
+                    </TableCell>
+                    <TableCell>
+                      <PriorityBadge priority={shipment.priority} />
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">
                       {formatDateTime(shipment.updated_at)}

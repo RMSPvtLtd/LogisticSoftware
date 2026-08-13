@@ -11,11 +11,11 @@ TODAY = date(2026, 6, 1)
 # to "waiting for Customs Clearance" without hardcoding stage positions twice.
 STEPS_TO_CUSTOMS_CLEARANCE = [
     ShipmentStage.AIRWAY_BILL,
-    ShipmentStage.GD,
     ShipmentStage.PICKUP,
     ShipmentStage.GATE_IN,
     ShipmentStage.SHIPMENT_RECEIPT,
     ShipmentStage.WEIGHMENT,
+    ShipmentStage.GD,
     ShipmentStage.CUSTOMS_EXAMINATION,
 ]
 
@@ -46,7 +46,7 @@ def test_queue_shows_only_shipments_at_the_preceding_stage(client, db_session):
     ready = _accepted_shipment(db_session)  # at job_opening -- ready for airway_bill
     not_ready = _accepted_shipment(db_session)
     advance_stage(db_session, not_ready, ShipmentStage.AIRWAY_BILL, actor="ops", note=None, source=EventSource.MANUAL)
-    advance_stage(db_session, not_ready, ShipmentStage.GD, actor="ops", note=None, source=EventSource.MANUAL)
+    advance_stage(db_session, not_ready, ShipmentStage.PICKUP, actor="ops", note=None, source=EventSource.MANUAL)
     db_session.commit()
 
     token = _login(client, "ali.airwaybill")

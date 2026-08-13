@@ -9,7 +9,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from models.enums import EventSource, ReferenceType, ShipmentStage
+from models.enums import EventSource, Priority, ReferenceType, ShipmentStage
 
 
 class ShipmentReferenceRead(BaseModel):
@@ -45,6 +45,7 @@ class ShipmentRead(BaseModel):
     stage: ShipmentStage
     is_at_risk: bool
     risk_reason: str | None
+    priority: Priority
     created_at: datetime
     updated_at: datetime
     references: list[ShipmentReferenceRead]
@@ -73,6 +74,10 @@ class InvoiceRequest(BaseModel):
 class ReferenceCreateRequest(BaseModel):
     type: ReferenceType
     value: str = Field(min_length=1, max_length=120)
+
+
+class PriorityUpdateRequest(BaseModel):
+    priority: Priority
 
 
 class RiskUpdateRequest(BaseModel):

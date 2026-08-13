@@ -12,3 +12,4 @@ pydantic-settings==2.15.0
 psycopg[binary]==3.3.4
 bcrypt==5.0.0
 pyjwt==2.13.0
+python-multipart==0.0.32

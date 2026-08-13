@@ -1,6 +1,6 @@
 from datetime import date
 
-from models.enums import EventSource, ShipmentStage
+from models.enums import EventSource, OPERATIONAL_STAGE_ORDER, ShipmentStage
 from services.quotes import accept_quote, generate_quote
 from services.transitions import advance_stage
 from factories import make_customer, make_inquiry, simple_rate_card
@@ -77,12 +77,12 @@ def _shipment_at_arrival(db_session):
     quote = generate_quote(db_session, inquiry.id, today=TODAY)
     db_session.flush()
     shipment = accept_quote(db_session, quote.id, "ops", today=TODAY)
-    for stage in (
-        ShipmentStage.AIRWAY_BILL, ShipmentStage.GD, ShipmentStage.PICKUP, ShipmentStage.GATE_IN,
-        ShipmentStage.SHIPMENT_RECEIPT, ShipmentStage.WEIGHMENT, ShipmentStage.CUSTOMS_EXAMINATION,
-        ShipmentStage.CUSTOMS_CLEARANCE, ShipmentStage.SCANNING, ShipmentStage.HANDOVER,
-        ShipmentStage.DEPARTURE, ShipmentStage.TRANSHIPMENT, ShipmentStage.ARRIVAL,
-    ):
+    # Every stage between job_opening (exclusive) and arrival (inclusive), in
+    # pipeline order -- a slice of the single source of truth rather than a
+    # literal list, so this can never drift from OPERATIONAL_STAGE_ORDER.
+    start = OPERATIONAL_STAGE_ORDER.index(ShipmentStage.JOB_OPENING) + 1
+    end = OPERATIONAL_STAGE_ORDER.index(ShipmentStage.ARRIVAL) + 1
+    for stage in OPERATIONAL_STAGE_ORDER[start:end]:
         advance_stage(db_session, shipment, stage, actor="ops", note=None, source=EventSource.MANUAL)
     return shipment
 

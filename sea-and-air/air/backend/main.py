@@ -13,6 +13,7 @@ from api import (
     auth,
     customer_portal,
     customers,
+    documents,
     inquiries,
     meta,
     quotes,
@@ -51,6 +52,8 @@ def create_app() -> FastAPI:
     app.include_router(inquiries.router)
     app.include_router(quotes.router)
     app.include_router(shipments.router)
+    app.include_router(documents.router)
+    app.include_router(documents.doc_router)
     app.include_router(tracking.router)
     app.include_router(meta.router)
     app.include_router(auth.router)

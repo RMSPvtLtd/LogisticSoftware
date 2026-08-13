@@ -5,6 +5,8 @@ import { ArrowLeft, CheckCircle, PencilSimple, UsersThree, Warning } from "@phos
 import { PageHeader } from "@/components/shared/PageHeader"
 import { StageBadge } from "@/components/shared/StageBadge"
 import { RiskBadge } from "@/components/shared/RiskBadge"
+import { PriorityBadge } from "@/components/shared/PriorityBadge"
+import { DocumentsCard } from "@/components/shared/DocumentsCard"
 import { EventTimeline } from "@/components/shared/EventTimeline"
 import { LoadingState, ErrorState } from "@/components/shared/States"
 import { Button } from "@/components/ui/button"
@@ -28,7 +30,7 @@ import { useStages } from "@/hooks/useStages"
 import { areasApi, customersApi, inquiriesApi, shipmentsApi } from "@/lib/api/client"
 import { ApiError } from "@/lib/api/client"
 import { formatDate } from "@/lib/format"
-import type { ReferenceType, ShipmentStage } from "@/lib/api/types"
+import type { Priority, ReferenceType, ShipmentStage } from "@/lib/api/types"
 
 const MODE_LABEL: Record<string, string> = { air: "Air", sea: "Sea", road: "Road" }
 const REFERENCE_TYPES: ReferenceType[] = ["MAWB", "HAWB", "MBL", "HBL", "CONTAINER"]
@@ -71,6 +73,7 @@ export function ShipmentDetailPage() {
             {s.job_number ?? `Inquiry #${s.inquiry_id}`}
             <StageBadge stage={s.stage} />
             {s.is_at_risk && <RiskBadge />}
+            <PriorityBadge priority={s.priority} />
           </span>
         }
         description={
@@ -95,8 +98,10 @@ export function ShipmentDetailPage() {
         <div className="flex flex-col gap-6">
           <NextStageCard shipmentId={s.id} nextStage={nextStage} onDone={shipment.reload} />
           <CorrectionCard shipmentId={s.id} currentStage={s.stage} onDone={shipment.reload} />
+          <PriorityCard shipmentId={s.id} priority={s.priority} onDone={shipment.reload} />
           <RiskCard shipmentId={s.id} isAtRisk={s.is_at_risk} riskReason={s.risk_reason} onDone={shipment.reload} />
           <ReferencesCard shipmentId={s.id} references={s.references} onDone={shipment.reload} />
+          <DocumentsCard shipmentId={s.id} />
 
           <Card>
             <CardHeader>
@@ -300,6 +305,54 @@ function CorrectionCard({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+const PRIORITY_LABEL: Record<Priority, string> = { low: "Low", medium: "Medium", high: "High" }
+
+function PriorityCard({
+  shipmentId,
+  priority,
+  onDone,
+}: {
+  shipmentId: number
+  priority: Priority
+  onDone: () => void
+}) {
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleChange(next: Priority) {
+    if (next === priority) return
+    setSubmitting(true)
+    try {
+      await shipmentsApi.setPriority(shipmentId, next)
+      toast.success(`Priority set to ${PRIORITY_LABEL[next]}`)
+      onDone()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not update priority.")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Priority</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Select value={priority} onValueChange={(v) => handleChange(v as Priority)} disabled={submitting}>
+          <SelectTrigger className="w-full" aria-label="Priority">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="low">Low</SelectItem>
+            <SelectItem value="medium">Medium</SelectItem>
+            <SelectItem value="high">High</SelectItem>
+          </SelectContent>
+        </Select>
+      </CardContent>
+    </Card>
   )
 }
 

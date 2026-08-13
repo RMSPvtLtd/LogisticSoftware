@@ -5,17 +5,18 @@ from sqlalchemy.orm import Session
 from db import get_db
 from utils.dependencies import current_actor
 from utils.errors import NotFound
-from models.enums import EventSource, ShipmentStage, TransportMode
+from models.enums import EventSource, Priority, ShipmentStage, TransportMode
 from models.inquiry import Inquiry
 from models.shipment import Shipment, ShipmentReference
 from schemas.shipments import (
     InvoiceRequest,
+    PriorityUpdateRequest,
     ReferenceCreateRequest,
     RiskUpdateRequest,
     ShipmentRead,
     StatusCorrectionRequest,
 )
-from services.transitions import advance_stage, correct_stage, set_risk
+from services.transitions import advance_stage, correct_stage, set_priority, set_risk
 
 router = APIRouter(prefix="/shipments", tags=["shipments"])
 
@@ -38,6 +39,7 @@ def list_shipments(
     stage: ShipmentStage | None = None,
     at_risk: bool | None = None,
     mode: TransportMode | None = None,
+    priority: Priority | None = None,
     db: Session = Depends(get_db),
 ) -> list[Shipment]:
     stmt = select(Shipment)
@@ -45,6 +47,8 @@ def list_shipments(
         stmt = stmt.where(Shipment.stage == stage)
     if at_risk is not None:
         stmt = stmt.where(Shipment.is_at_risk == at_risk)
+    if priority is not None:
+        stmt = stmt.where(Shipment.priority == priority)
     if mode is not None:
         stmt = stmt.join(Inquiry, Inquiry.id == Shipment.inquiry_id).where(Inquiry.mode == mode)
     return list(db.execute(stmt.order_by(Shipment.id)).scalars())
@@ -86,6 +90,18 @@ def update_risk(
 ) -> Shipment:
     shipment = _get_shipment(db, shipment_id)
     set_risk(db, shipment, is_at_risk=payload.is_at_risk, risk_reason=payload.risk_reason, actor=actor)
+    return shipment
+
+
+@router.post("/{shipment_id}/priority", response_model=ShipmentRead)
+def update_priority(
+    shipment_id: int,
+    payload: PriorityUpdateRequest,
+    actor: str = Depends(current_actor),
+    db: Session = Depends(get_db),
+) -> Shipment:
+    shipment = _get_shipment(db, shipment_id)
+    set_priority(db, shipment, priority=payload.priority, actor=actor)
     return shipment
 
 

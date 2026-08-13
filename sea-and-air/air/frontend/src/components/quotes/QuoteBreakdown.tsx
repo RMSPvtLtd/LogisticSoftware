@@ -56,7 +56,7 @@ export function QuoteBreakdown({ quoteId }: { quoteId: number }) {
 }
 
 function LineItemsCard({ quote, onSaved }: { quote: Quote; onSaved: () => void }) {
-  const editable = quote.status === "draft"
+  const editable = quote.shipment_stage !== "invoice_to_customer"
   const [edits, setEdits] = useState<Record<number, string>>({})
   const [saving, setSaving] = useState(false)
 
@@ -89,7 +89,7 @@ function LineItemsCard({ quote, onSaved }: { quote: Quote; onSaved: () => void }
         {editable && (
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <PencilSimpleLine size={14} />
-            Editable while in draft
+            Editable until invoiced
           </span>
         )}
       </CardHeader>
@@ -203,7 +203,7 @@ function ActionsBar({
     return (
       <div className="flex items-center gap-2 rounded-xl border border-status-success/20 bg-status-success/5 px-4 py-3 text-sm text-status-success">
         <CheckCircle size={18} weight="fill" />
-        This quote has already been accepted.{" "}
+        A job has already been opened from this quote.{" "}
         <Link to="/shipments" className="underline">
           View shipments
         </Link>
@@ -228,7 +228,7 @@ function ActionsBar({
     setAccepting(true)
     try {
       const shipment = await quotesApi.accept(quote.id)
-      toast.success("Quote accepted")
+      toast.success("Job opened")
       onAccepted(shipment)
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not accept quote.")
@@ -251,7 +251,7 @@ function ActionsBar({
         )}
         <Button onClick={handleAccept} disabled={accepting} className="gap-1.5">
           <CheckCircle size={16} />
-          {accepting ? "Accepting…" : "Accept Quote"}
+          {accepting ? "Opening job…" : "Open Job"}
         </Button>
       </div>
     </div>
@@ -264,7 +264,7 @@ function AcceptedPanel({ shipment }: { shipment: Shipment }) {
     <Card className="border-status-success/30 bg-status-success/5">
       <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
         <CheckCircle size={40} weight="fill" className="text-status-success" />
-        <h2 className="font-heading text-lg font-semibold text-foreground">Quote accepted</h2>
+        <h2 className="font-heading text-lg font-semibold text-foreground">Job opened</h2>
         <p className="text-sm text-muted-foreground">The shipment has been created with job number</p>
         <p className="font-heading text-2xl font-semibold tabular-nums text-foreground">{shipment.job_number}</p>
         <div className="mt-2 flex gap-2">

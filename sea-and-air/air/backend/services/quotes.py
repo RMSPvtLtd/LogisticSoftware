@@ -3,16 +3,21 @@ acceptance. `recalculate_totals` is the only place a Quote's subtotal,
 markup_amount, and total are derived from its line items — nothing else
 computes those fields.
 
-Lifecycle:
+Status lifecycle (send/accept only, not line-item editing):
 
-    draft     -> may be edited, sent, or accepted (if not expired)
-    sent      -> may be accepted (if not expired); may not be edited or re-sent
+    draft     -> may be sent, or accepted (if not expired)
+    sent      -> may be accepted (if not expired); may not be re-sent
     accepted  -> terminal (repeated acceptance stays idempotent, see accept_quote)
     expired   -> terminal
 
 A draft/sent quote whose valid_until has passed is treated as expired the
 next time it is touched by one of these operations (`_apply_lazy_expiry`).
 There is no scheduler; expiry is evaluated lazily, on demand.
+
+Line-item editing (`override_line_items`) is independent of quote status --
+it's gated on the *shipment's* stage instead (see that function's
+docstring): pricing can be corrected any time up until the shipment is
+invoiced to the customer, not just while the quote is still a draft.
 """
 
 from dataclasses import dataclass
@@ -124,12 +129,18 @@ class LineItemOverride:
 def override_line_items(
     session: Session, quote_id: int, overrides: list[LineItemOverride], *, today: date | None = None
 ) -> Quote:
+    """Editable regardless of quote status (draft/sent/accepted/expired) --
+    only blocked once the quote's shipment has reached its terminal stage,
+    invoice_to_customer. A quote with no shipment reference (superseded by a
+    later re-quote, see `generate_quote`) has nothing that can have "ended",
+    so it stays editable.
+    """
     today = today or date.today()
     quote = _get_quote(session, quote_id)
     _apply_lazy_expiry(quote, today)
 
-    if quote.status != QuoteStatus.DRAFT:
-        raise InvalidQuoteState(f"Quote {quote.id} cannot be edited from status {quote.status.value}")
+    if quote.shipment is not None and quote.shipment.stage == ShipmentStage.INVOICE_TO_CUSTOMER:
+        raise InvalidQuoteState(f"Quote {quote.id} cannot be edited: its shipment has already been invoiced")
 
     line_items_by_id = {li.id: li for li in quote.line_items}
     for override in overrides:
