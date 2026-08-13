@@ -1,8 +1,7 @@
 import { RaaziqLoader } from "@/components/shared/RaaziqLoader"
 
-// Showcase of every RaaziqLoader variant, served at both /loading (dev
-// shorthand) and /landing (the link shared from the deployed site). Not
-// linked from any nav -- direct URL only.
+// Showcase of every RaaziqLoader variant, served at /loading. Not linked
+// from any nav -- direct URL only.
 export function LoaderPreviewPage() {
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 px-4 py-16">
