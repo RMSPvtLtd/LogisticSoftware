@@ -140,3 +140,67 @@ def test_inactive_worker_cannot_use_existing_token_flows(client, db_session):
 
     r = client.post("/auth/login", json={"username": "ali.airwaybill", "password": "Worker123!"})
     assert r.status_code == 401
+
+
+# --- worker document upload ---
+
+VALID_PDF = b"%PDF-1.4\n%mock pdf content for tests\n%%EOF"
+
+
+def test_worker_can_upload_document_for_shipment_in_their_queue(client, db_session):
+    airway_bill_area = make_area(db_session, ShipmentStage.AIRWAY_BILL)
+    make_worker(db_session, airway_bill_area, name="Ayesha Raza", username="ayesha.airwaybill")
+
+    shipment = _accepted_shipment(db_session)  # at job_opening -- ready for airway_bill
+    db_session.commit()
+    shipment_id = shipment.id
+
+    token = _login(client, "ayesha.airwaybill")
+    r = client.post(
+        f"/worker/shipments/{shipment_id}/documents",
+        files={"file": ("airway-bill.pdf", VALID_PDF, "application/pdf")},
+        headers=_auth_headers(token),
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["filename"] == "airway-bill.pdf"
+    assert r.json()["uploaded_by"] == "Ayesha Raza"
+
+    r = client.get(f"/worker/shipments/{shipment_id}/documents", headers=_auth_headers(token))
+    assert r.status_code == 200, r.text
+    assert len(r.json()) == 1
+
+    # Same document is visible on the ops side too -- one shared table.
+    r = client.get(f"/shipments/{shipment_id}/documents")
+    assert r.status_code == 200, r.text
+    assert len(r.json()) == 1
+
+
+def test_worker_cannot_upload_document_for_shipment_not_in_their_queue(client, db_session):
+    customs_area = make_area(db_session, ShipmentStage.CUSTOMS_CLEARANCE)
+    make_worker(db_session, customs_area, username="omar.customs")
+
+    shipment = _accepted_shipment(db_session)  # at job_opening -- not omar's queue
+    db_session.commit()
+    shipment_id = shipment.id
+
+    token = _login(client, "omar.customs")
+    r = client.post(
+        f"/worker/shipments/{shipment_id}/documents",
+        files={"file": ("doc.pdf", VALID_PDF, "application/pdf")},
+        headers=_auth_headers(token),
+    )
+    assert r.status_code == 401
+
+    r = client.get(f"/worker/shipments/{shipment_id}/documents", headers=_auth_headers(token))
+    assert r.status_code == 401
+
+
+def test_worker_document_upload_requires_authentication(client, db_session):
+    shipment = _accepted_shipment(db_session)
+    db_session.commit()
+
+    r = client.post(
+        f"/worker/shipments/{shipment.id}/documents",
+        files={"file": ("doc.pdf", VALID_PDF, "application/pdf")},
+    )
+    assert r.status_code == 401

@@ -206,6 +206,30 @@ export const workerPortalApi = {
       headers: authHeader(token),
       body: JSON.stringify({ note: note || undefined }),
     }),
+  listDocuments: (token: string, shipmentId: number) =>
+    request<ShipmentDocument[]>(`/worker/shipments/${shipmentId}/documents`, { headers: authHeader(token) }),
+  // Bypasses `request()` for the same reason documentsApi.upload does --
+  // Content-Type: application/json would break multipart's boundary param.
+  uploadDocument: async (token: string, shipmentId: number, file: File): Promise<ShipmentDocument> => {
+    const form = new FormData()
+    form.append("file", file)
+    const res = await fetch(`${BASE_URL}/worker/shipments/${shipmentId}/documents`, {
+      method: "POST",
+      body: form,
+      headers: authHeader(token),
+    })
+    if (!res.ok) {
+      let detail = res.statusText
+      try {
+        const body = await res.json()
+        if (typeof body?.detail === "string") detail = body.detail
+      } catch {
+        // response body wasn't JSON -- fall back to statusText
+      }
+      throw new ApiError(res.status, detail)
+    }
+    return res.json() as Promise<ShipmentDocument>
+  },
 }
 
 function authHeader(token: string): HeadersInit {
