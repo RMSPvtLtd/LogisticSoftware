@@ -16,14 +16,69 @@
   }
 }
 
-/* Same shift-and-loop trick as dot-conveyor, but for the ship's sea-wave
-   line, whose period is 32px instead of 16px. */
-@keyframes wave-conveyor {
+/* Clouds drifting backward past the plane, in the loader scene's own
+   400-wide viewBox coordinates -- enter past the right edge, exit past the
+   left, so the loop point is never on screen. */
+@keyframes cloud-drift-x {
   from {
-    transform: translateX(0px);
+    transform: translateX(430px);
   }
   to {
-    transform: translateX(-32px);
+    transform: translateX(-70px);
+  }
+}
+
+/* The reference boat's real bob: 4px over a 2.16s cycle, measured off the
+   source animation frame-by-frame rather than guessed. */
+@keyframes boat-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(4px);
+  }
+}
+
+/* The swell travelling under the boat. The reference moves it right at
+   1px/frame, i.e. one 36px wave period every 720ms; the band being shifted
+   is periodic at that spacing, so the loop is seamless. */
+@keyframes sea-waves {
+  from {
+    transform: translateX(-36px);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* Speed streaks blowing back past the jet. The dash pattern repeats every
+   84px, so advancing the offset by exactly one period loops invisibly. */
+@keyframes speed-dash {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: 84px;
+  }
+}
+
+/* A funnel puff: rises up-and-left out of the stack, growing as it goes,
+   fading in at birth and out at the top so the loop never pops. */
+@keyframes boat-smoke {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-26px, -34px) scale(4.3);
+    opacity: 0;
   }
 }
 

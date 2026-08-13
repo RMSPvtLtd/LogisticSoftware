@@ -20,9 +20,9 @@
 // has no separate reduced-motion branch.
 
 import { useId } from "react"
-import { Airplane, Boat } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 import { useStages } from "@/hooks/useStages"
+import { BoatScene, PlaneScene } from "@/components/shared/RaaziqLoaderArt"
 import type { ShipmentStage } from "@/lib/api/types"
 
 export function useShipmentProgress(stage: ShipmentStage): number {
@@ -55,17 +55,26 @@ const DOT_XS = Array.from(
   (_, i) => ROUTE_X_START - DOT_SPACING + i * DOT_SPACING,
 )
 
-// A gentle sine-wave line under the ship instead of road dots -- the wave
-// is periodic at WAVE_PERIOD, so the same shift-and-loop trick used for the
-// dots applies here too. Reads as "sea" regardless of how the vehicle icon
-// itself is drawn.
-const WAVE_PERIOD = 32
-const waveSegment = `q ${WAVE_PERIOD / 4} -3 ${WAVE_PERIOD / 2} 0 q ${WAVE_PERIOD / 4} 3 ${WAVE_PERIOD / 2} 0 `
-const waveRepeats = Math.ceil((ROUTE_WIDTH + WAVE_PERIOD * 2) / WAVE_PERIOD)
-const WAVE_PATH = `M ${ROUTE_X_START - WAVE_PERIOD} ${DOT_Y} ` + waveSegment.repeat(waveRepeats)
-
 export function RaaziqLoader({ variant, vehicle = "truck", progress = 0, label, className }: RaaziqLoaderProps) {
   const isInline = variant === "inline"
+
+  // Air/sea use their own scene artwork (traced from the reference
+  // animations) rather than the truck's wide road strip -- those
+  // compositions are near-square, so they get their own footprint.
+  if (vehicle !== "truck") {
+    const sceneWidth = isInline ? 132 : 200
+    return (
+      <div
+        role="status"
+        aria-label={label ?? "Loading"}
+        className={cn("flex flex-col items-center gap-2 text-primary", className)}
+      >
+        {vehicle === "plane" ? <PlaneScene width={sceneWidth} /> : <BoatScene width={sceneWidth} />}
+        {label && <p className="text-xs text-muted-foreground">{label}</p>}
+      </div>
+    )
+  }
+
   const width = isInline ? 120 : 240
   const height = isInline ? 32 : 60
   const clampedProgress = Math.min(1, Math.max(0, progress))
@@ -79,33 +88,22 @@ export function RaaziqLoader({ variant, vehicle = "truck", progress = 0, label, 
       aria-label={label ?? "Loading"}
       className={cn("flex flex-col items-center gap-2", className)}
     >
-      {/* Fixed pixel box (not scaled by the SVG's viewBox) so the plane/ship
-          icon overlay stays crisp at the "inline" size instead of shrinking
-          along with the vector artwork underneath it. */}
+      {/* Fixed pixel box (not scaled by the SVG's viewBox) so the line-art
+          plane/ship overlay keeps its stroke weight at the "inline" size
+          instead of thinning out with the vector artwork underneath it. */}
       <div className="relative text-primary" style={{ width, height }}>
         <svg viewBox="0 0 240 60" width={width} height={height} aria-hidden="true">
-          {/* Route markers -- periodic, so shifting by exactly one period and
-              looping is a seamless conveyor. Always animating so the loader
-              never reads as frozen. Ship gets a sea-wave line instead of
-              road dots, since that's the one cue that doesn't depend on the
-              vehicle icon's own shape. */}
-          {vehicle === "ship" ? (
-            <g
-              clipPath="inset(0 8px 0 8px)"
-              style={{ animation: `wave-conveyor ${WAVE_PERIOD * 27.5}ms linear infinite` }}
-            >
-              <path d={WAVE_PATH} fill="none" stroke="currentColor" strokeOpacity="0.35" strokeWidth="1.5" />
-            </g>
-          ) : (
-            <g
-              clipPath="inset(0 8px 0 8px)"
-              style={{ animation: `dot-conveyor ${DOT_SPACING * 55}ms linear infinite` }}
-            >
-              {DOT_XS.map((x) => (
-                <circle key={x} cx={x} cy={DOT_Y} r="2" fill="currentColor" fillOpacity="0.3" />
-              ))}
-            </g>
-          )}
+          {/* Road markers -- the field is periodic at DOT_SPACING, so shifting
+              it by exactly one spacing and looping is a seamless conveyor.
+              Always animating so the loader never reads as frozen. */}
+          <g
+            clipPath="inset(0 8px 0 8px)"
+            style={{ animation: `dot-conveyor ${DOT_SPACING * 55}ms linear infinite` }}
+          >
+            {DOT_XS.map((x) => (
+              <circle key={x} cx={x} cy={DOT_Y} r="2" fill="currentColor" fillOpacity="0.3" />
+            ))}
+          </g>
 
           {/* Sky marker -- fixed in the corner, distant from the vehicle:
               crescent moon (light) swaps to a sun (dark), cut with a mask so
@@ -136,8 +134,7 @@ export function RaaziqLoader({ variant, vehicle = "truck", progress = 0, label, 
           </g>
 
           {/* Truck -- hand-drawn vector, scales fine with the viewBox. */}
-          {vehicle === "truck" && (
-            <g
+          <g
               style={{
                 transform: `translateX(${truckX - TRUCK_CENTER_X}px)`,
                 transition: vehicleTransition && `transform ${vehicleTransition}`,
@@ -147,31 +144,10 @@ export function RaaziqLoader({ variant, vehicle = "truck", progress = 0, label, 
               <path d="M114 28h9l6 6v6h-15z" fill="currentColor" />
               <rect x="120" y="30" width="6" height="5" rx="1" className="fill-background" />
               <circle cx="96" cy="42" r="3.5" fill="currentColor" />
-              <circle cx="118" cy="42" r="3.5" fill="currentColor" />
-            </g>
-          )}
+            <circle cx="118" cy="42" r="3.5" fill="currentColor" />
+          </g>
         </svg>
 
-        {/* Plane/ship -- real Phosphor icons rendered as an HTML overlay at
-            a fixed pixel size, not inside the SVG's viewBox, so they stay
-            legible instead of shrinking to a blob at the "inline" scale. */}
-        {vehicle !== "truck" && (
-          <div
-            className="absolute flex items-center justify-center"
-            style={{
-              left: `${(truckX / 240) * 100}%`,
-              top: "58%",
-              transform: "translate(-50%, -50%)",
-              transition: vehicleTransition && `left ${vehicleTransition}`,
-            }}
-          >
-            {vehicle === "plane" ? (
-              <Airplane size={isInline ? 20 : 26} weight="regular" />
-            ) : (
-              <Boat size={isInline ? 20 : 26} weight="regular" />
-            )}
-          </div>
-        )}
       </div>
       {label && <p className="text-xs text-muted-foreground">{label}</p>}
     </div>
