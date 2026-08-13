@@ -29,6 +29,14 @@ export function LoaderPreviewPage() {
       <Section title="progress — 100%">
         <RaaziqLoader variant="progress" progress={1} />
       </Section>
+
+      <Section title="plane — air search">
+        <RaaziqLoader variant="inline" vehicle="plane" label="Fetching shipment information…" />
+      </Section>
+
+      <Section title="ship — sea search">
+        <RaaziqLoader variant="inline" vehicle="ship" label="Fetching shipment information…" />
+      </Section>
     </div>
   )
 }

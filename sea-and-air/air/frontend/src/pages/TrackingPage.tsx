@@ -94,7 +94,7 @@ function AirTrackingResultView({ reference }: { reference: string }) {
   if (result.loading || stages.length === 0) {
     return (
       <div className="mx-auto max-w-xl space-y-4">
-        <RaaziqLoader variant="inline" label="Fetching shipment information…" />
+        <RaaziqLoader variant="inline" vehicle="plane" label="Fetching shipment information…" />
         <LoadingState rows={4} />
       </div>
     )
@@ -214,7 +214,7 @@ function SeaTrackingResultView({ containerNumber }: { containerNumber: string })
   if (state.status === "loading") {
     return (
       <div className="mx-auto max-w-xl space-y-4">
-        <RaaziqLoader variant="inline" label="Fetching shipment information…" />
+        <RaaziqLoader variant="inline" vehicle="ship" label="Fetching shipment information…" />
         <LoadingState rows={3} />
       </div>
     )
