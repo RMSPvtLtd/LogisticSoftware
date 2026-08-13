@@ -4,6 +4,7 @@ import { Key, UserCircle } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { LoadingState, ErrorState, EmptyState } from "@/components/shared/States"
 import { Card, CardContent } from "@/components/ui/card"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -55,12 +56,23 @@ function CustomerRow({ customer, onChanged }: { customer: Customer; onChanged: (
   return (
     <Card>
       <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <p className="font-heading text-sm font-semibold text-foreground">{customer.name}</p>
-            {customer.company_name && <span className="text-sm text-muted-foreground">{customer.company_name}</span>}
+        <div className="flex items-center gap-3">
+          <Avatar className="size-8">
+            <AvatarFallback>
+              {customer.name
+                .split(/\s+/)
+                .slice(0, 2)
+                .map((p) => p[0]?.toUpperCase())
+                .join("")}
+            </AvatarFallback>
+          </Avatar>
+          <div>
+            <div className="flex items-center gap-2">
+              <p className="font-heading text-sm font-semibold text-foreground">{customer.name}</p>
+              {customer.company_name && <span className="text-sm text-muted-foreground">{customer.company_name}</span>}
+            </div>
+            <p className="text-xs text-muted-foreground">{customer.email}</p>
           </div>
-          <p className="text-xs text-muted-foreground">{customer.email}</p>
         </div>
 
         <div className="flex items-center gap-2">

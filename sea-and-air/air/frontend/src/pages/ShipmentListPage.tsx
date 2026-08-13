@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { Package } from "@phosphor-icons/react"
+import { CaretDown, CaretUp, Package } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { StageBadge } from "@/components/shared/StageBadge"
 import { RiskBadge } from "@/components/shared/RiskBadge"
-import { LoadingState, ErrorState, EmptyState } from "@/components/shared/States"
+import { ErrorState, EmptyState, TableSkeleton } from "@/components/shared/States"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -16,12 +16,18 @@ import { formatDateTime } from "@/lib/format"
 import type { ShipmentFilters, ShipmentStage } from "@/lib/api/types"
 
 type ListTab = "active" | "completed"
+type SortKey = "job_number" | "updated_at"
 
 export function ShipmentListPage() {
   const navigate = useNavigate()
   const { stages } = useStages()
   const [tab, setTab] = useState<ListTab>("active")
   const [filters, setFilters] = useState<ShipmentFilters>({})
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "updated_at", dir: "desc" })
+
+  function toggleSort(key: SortKey) {
+    setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }))
+  }
 
   const shipments = useAsync(() => shipmentsApi.list(filters), [filters.stage, filters.at_risk])
   const customers = useAsync(() => customersApi.list(), [])
@@ -36,13 +42,18 @@ export function ShipmentListPage() {
     [inquiries.data],
   )
 
-  const visibleShipments = useMemo(
-    () =>
-      (shipments.data ?? []).filter((s) =>
-        tab === "completed" ? s.stage === "invoice_to_customer" : s.stage !== "invoice_to_customer",
-      ),
-    [shipments.data, tab],
-  )
+  const visibleShipments = useMemo(() => {
+    const filtered = (shipments.data ?? []).filter((s) =>
+      tab === "completed" ? s.stage === "invoice_to_customer" : s.stage !== "invoice_to_customer",
+    )
+    const sorted = [...filtered].sort((a, b) => {
+      const av = sort.key === "job_number" ? (a.job_number ?? "") : a.updated_at
+      const bv = sort.key === "job_number" ? (b.job_number ?? "") : b.updated_at
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0
+      return sort.dir === "asc" ? cmp : -cmp
+    })
+    return sorted
+  }, [shipments.data, tab, sort])
 
   const loading = shipments.loading || customers.loading || inquiries.loading
   const error = shipments.error ?? customers.error ?? inquiries.error
@@ -109,7 +120,7 @@ export function ShipmentListPage() {
         )}
       </div>
 
-      {loading && <LoadingState rows={5} />}
+      {loading && <TableSkeleton columns={6} rows={5} />}
       {!loading && error && <ErrorState message={error} onRetry={shipments.reload} />}
       {!loading && !error && visibleShipments.length === 0 && (
         <EmptyState
@@ -140,13 +151,13 @@ export function ShipmentListPage() {
       {!loading && !error && visibleShipments.length > 0 && (
         <div className="overflow-x-auto rounded-xl border border-border">
           <Table>
-            <TableHeader>
+            <TableHeader className="sticky top-14 z-10 bg-card">
               <TableRow>
-                <TableHead>Job Number</TableHead>
+                <SortableHead label="Job Number" sortKey="job_number" sort={sort} onSort={toggleSort} />
                 <TableHead>Customer</TableHead>
                 <TableHead>Route</TableHead>
                 <TableHead>Stage</TableHead>
-                <TableHead>Last Updated</TableHead>
+                <SortableHead label="Last Updated" sortKey="updated_at" sort={sort} onSort={toggleSort} />
                 <TableHead>Risk</TableHead>
               </TableRow>
             </TableHeader>
@@ -188,5 +199,39 @@ export function ShipmentListPage() {
         </div>
       )}
     </div>
+  )
+}
+
+function SortableHead({
+  label,
+  sortKey,
+  sort,
+  onSort,
+}: {
+  label: string
+  sortKey: SortKey
+  sort: { key: SortKey; dir: "asc" | "desc" }
+  onSort: (key: SortKey) => void
+}) {
+  const active = sort.key === sortKey
+  return (
+    <TableHead>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className="flex items-center gap-1 text-foreground transition-colors duration-[var(--motion-fast)] hover:text-accent-foreground"
+      >
+        {label}
+        {active ? (
+          sort.dir === "asc" ? (
+            <CaretUp size={12} weight="bold" />
+          ) : (
+            <CaretDown size={12} weight="bold" />
+          )
+        ) : (
+          <CaretDown size={12} className="opacity-0 group-hover:opacity-40" />
+        )}
+      </button>
+    </TableHead>
   )
 }

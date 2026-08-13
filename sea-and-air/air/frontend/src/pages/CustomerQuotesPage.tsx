@@ -2,7 +2,7 @@ import { Link } from "react-router-dom"
 import { Receipt } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { Badge } from "@/components/ui/badge"
-import { LoadingState, ErrorState, EmptyState } from "@/components/shared/States"
+import { ErrorState, EmptyState, TableSkeleton } from "@/components/shared/States"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useAsync } from "@/hooks/useAsync"
 import { useCustomerAuth } from "@/hooks/useCustomerAuth"
@@ -25,7 +25,7 @@ export function CustomerQuotesPage() {
     <div>
       <PageHeader title="Quotes" description="Every quote we've prepared for you." />
 
-      {quotes.loading && <LoadingState rows={5} />}
+      {quotes.loading && <TableSkeleton columns={4} rows={5} />}
       {!quotes.loading && quotes.error && <ErrorState message={quotes.error} onRetry={quotes.reload} />}
       {!quotes.loading && !quotes.error && (quotes.data?.length ?? 0) === 0 && (
         <EmptyState icon={<Receipt size={32} />} title="No quotes yet" description="Quotes you request will appear here." />

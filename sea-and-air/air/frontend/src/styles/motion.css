@@ -1,0 +1,76 @@
+/* Raaziq motion primitives -- keyframes + reusable animation utility
+   classes. Durations/easings come from the --motion-* tokens in
+   index.css so CSS and any inline styles share one source. Everything
+   here is transform/opacity/stroke-based (GPU-friendly), no layout
+   properties are animated. */
+
+@keyframes truck-drive {
+  from {
+    transform: translateX(0px);
+  }
+  to {
+    transform: translateX(200px);
+  }
+}
+
+@keyframes dash-flow {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes pulse-dot {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.4);
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-page-in {
+  animation: page-in var(--motion-base) var(--motion-ease-out);
+}
+
+/* Dashboard entrance stagger -- apply .stagger-in to each top-level
+   section inside one parent; nth-child ordering drives the delay so no
+   per-element inline style/index math is needed. Steps mirror
+   shell(handled separately) -> header -> KPIs -> chart -> activity ->
+   alerts. */
+.stagger-in {
+  opacity: 0;
+  animation: fade-up var(--motion-slow) var(--motion-ease-out) forwards;
+}
+.stagger-in:nth-child(1) { animation-delay: 0ms; }
+.stagger-in:nth-child(2) { animation-delay: 80ms; }
+.stagger-in:nth-child(3) { animation-delay: 160ms; }
+.stagger-in:nth-child(4) { animation-delay: 240ms; }
+.stagger-in:nth-child(5) { animation-delay: 320ms; }
+.stagger-in:nth-child(6) { animation-delay: 400ms; }

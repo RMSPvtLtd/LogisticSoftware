@@ -6,7 +6,10 @@ import { PageHeader } from "@/components/shared/PageHeader"
 import { StageBadge } from "@/components/shared/StageBadge"
 import { RiskBadge } from "@/components/shared/RiskBadge"
 import { EventTimeline } from "@/components/shared/EventTimeline"
+import { StageChecklist } from "@/components/shared/StageChecklist"
+import { RaaziqLoader, useShipmentProgress } from "@/components/shared/RaaziqLoader"
 import { LoadingState, ErrorState } from "@/components/shared/States"
+import { buildChecklist } from "@/lib/checklist"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
@@ -49,7 +52,14 @@ export function ShipmentDetailPage() {
     [shipment.data?.inquiry_id],
   )
 
-  if (shipment.loading) return <LoadingState rows={6} />
+  if (shipment.loading) {
+    return (
+      <div className="space-y-4">
+        <RaaziqLoader variant="full" label="Loading shipment…" />
+        <LoadingState rows={6} />
+      </div>
+    )
+  }
   if (shipment.error || !shipment.data) {
     return <ErrorState message={shipment.error ?? "Shipment not found."} onRetry={shipment.reload} />
   }
@@ -57,6 +67,7 @@ export function ShipmentDetailPage() {
   const s = shipment.data
   const currentIndex = stages.findIndex((st) => st.stage === s.stage)
   const nextStage = currentIndex >= 0 && currentIndex + 1 < stages.length ? stages[currentIndex + 1] : null
+  const checklist = buildChecklist(stages, s.stage, s.status_events)
 
   return (
     <div>
@@ -81,7 +92,19 @@ export function ShipmentDetailPage() {
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 flex flex-col gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Shipment journey</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ShipmentJourney stage={s.stage} />
+              <div className="mt-4">
+                <StageChecklist items={checklist} />
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Status history</CardTitle>
@@ -113,6 +136,13 @@ export function ShipmentDetailPage() {
       </div>
     </div>
   )
+}
+
+// Ties the signature RaaziqLoader to real data -- truck position is the
+// shipment's actual stage index, not decoration.
+function ShipmentJourney({ stage }: { stage: ShipmentStage }) {
+  const progress = useShipmentProgress(stage)
+  return <RaaziqLoader variant="progress" progress={progress} />
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {

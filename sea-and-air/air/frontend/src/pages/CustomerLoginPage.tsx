@@ -34,7 +34,7 @@ export function CustomerLoginPage() {
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-sm">
+      <Card className="w-full max-w-sm animate-page-in">
         <CardContent className="pt-6">
           <div className="mb-6 flex flex-col items-center text-center">
             <Truck size={28} weight="fill" className="mb-2 text-accent-foreground" />

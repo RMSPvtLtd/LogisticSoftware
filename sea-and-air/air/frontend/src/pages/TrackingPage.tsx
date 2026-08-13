@@ -10,10 +10,11 @@ import { EventTimeline } from "@/components/shared/EventTimeline"
 import { ContainerTimeline } from "@/components/shared/ContainerTimeline"
 import { ContainerDetailCard } from "@/components/shared/ContainerDetailCard"
 import { LoadingState } from "@/components/shared/States"
+import { RaaziqLoader, useShipmentProgress } from "@/components/shared/RaaziqLoader"
 import { useAsync } from "@/hooks/useAsync"
 import { useStages } from "@/hooks/useStages"
 import { trackingApi, seaTrackingApi, ApiError } from "@/lib/api/client"
-import type { SeaTrackingResult } from "@/lib/api/types"
+import type { SeaTrackingResult, ShipmentStage } from "@/lib/api/types"
 
 const MODE_LABEL: Record<string, string> = { air: "Air Freight", sea: "Sea Freight", road: "Road Freight" }
 
@@ -81,11 +82,23 @@ export function TrackingPage() {
   )
 }
 
+function TrackingJourney({ stage }: { stage: ShipmentStage }) {
+  const progress = useShipmentProgress(stage)
+  return <RaaziqLoader variant="progress" progress={progress} />
+}
+
 function AirTrackingResultView({ reference }: { reference: string }) {
   const { stages, labelFor } = useStages()
   const result = useAsync(() => trackingApi.track(reference), [reference])
 
-  if (result.loading || stages.length === 0) return <LoadingState rows={4} />
+  if (result.loading || stages.length === 0) {
+    return (
+      <div className="mx-auto max-w-xl space-y-4">
+        <RaaziqLoader variant="inline" label="Fetching shipment information…" />
+        <LoadingState rows={4} />
+      </div>
+    )
+  }
 
   if (result.error) {
     return (
@@ -129,7 +142,10 @@ function AirTrackingResultView({ reference }: { reference: string }) {
       <Card>
         <CardContent className="py-6">
           <p className="mb-4 text-xs font-medium tracking-wide text-muted-foreground uppercase">Current Status</p>
-          <StageChecklist items={r.checklist} />
+          <TrackingJourney stage={r.stage} />
+          <div className="mt-4">
+            <StageChecklist items={r.checklist} />
+          </div>
         </CardContent>
       </Card>
 
@@ -197,8 +213,8 @@ function SeaTrackingResultView({ containerNumber }: { containerNumber: string })
 
   if (state.status === "loading") {
     return (
-      <div className="mx-auto max-w-xl">
-        <p className="mb-4 text-center text-sm text-muted-foreground">Fetching shipment information...</p>
+      <div className="mx-auto max-w-xl space-y-4">
+        <RaaziqLoader variant="inline" label="Fetching shipment information…" />
         <LoadingState rows={3} />
       </div>
     )

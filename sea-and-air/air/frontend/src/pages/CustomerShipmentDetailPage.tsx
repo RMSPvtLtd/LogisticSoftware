@@ -3,6 +3,7 @@ import { Warning } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { StageChecklist } from "@/components/shared/StageChecklist"
 import { EventTimeline } from "@/components/shared/EventTimeline"
+import { RaaziqLoader, useShipmentProgress } from "@/components/shared/RaaziqLoader"
 import { LoadingState, ErrorState } from "@/components/shared/States"
 import { Card, CardContent } from "@/components/ui/card"
 import { useAsync } from "@/hooks/useAsync"
@@ -11,6 +12,11 @@ import { customerPortalApi } from "@/lib/api/client"
 
 const MODE_LABEL: Record<string, string> = { air: "Air Freight", sea: "Sea Freight", road: "Road Freight" }
 
+function ShipmentProgressIndicator({ stage }: { stage: Parameters<typeof useShipmentProgress>[0] }) {
+  const progress = useShipmentProgress(stage)
+  return <RaaziqLoader variant="progress" progress={progress} />
+}
+
 export function CustomerShipmentDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { token } = useCustomerAuth()
@@ -18,7 +24,14 @@ export function CustomerShipmentDetailPage() {
 
   const result = useAsync(() => customerPortalApi.shipment(token!, shipmentId), [token, shipmentId])
 
-  if (result.loading) return <LoadingState rows={4} />
+  if (result.loading) {
+    return (
+      <div className="mx-auto max-w-xl space-y-4">
+        <RaaziqLoader variant="full" label="Loading shipment…" />
+        <LoadingState rows={4} />
+      </div>
+    )
+  }
   if (result.error || !result.data) {
     return <ErrorState message={result.error ?? "Shipment not found."} onRetry={result.reload} />
   }
@@ -45,7 +58,10 @@ export function CustomerShipmentDetailPage() {
       <Card>
         <CardContent className="py-6">
           <p className="mb-4 text-xs font-medium tracking-wide text-muted-foreground uppercase">Current Status</p>
-          <StageChecklist items={r.checklist} />
+          <ShipmentProgressIndicator stage={r.stage} />
+          <div className="mt-4">
+            <StageChecklist items={r.checklist} />
+          </div>
         </CardContent>
       </Card>
 

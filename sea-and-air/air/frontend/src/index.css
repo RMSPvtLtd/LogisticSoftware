@@ -1,5 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
+@import "./styles/motion.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -39,6 +40,24 @@
   --status-info-bg: #e0f2fe;
   --status-neutral: #64748b;
   --status-neutral-bg: #f1f5f9;
+
+  /* Sidebar surface -- a distinct structural plane from --card, not another
+     card. */
+  --sidebar: #f1f5f9;
+  --sidebar-foreground: #0f172a;
+  --sidebar-border: #e2e8f0;
+  --sidebar-accent: #eaf2f8;
+  --sidebar-accent-foreground: #0369a1;
+  --sidebar-width: 15rem;
+  --sidebar-width-icon: 3.5rem;
+
+  /* Motion tokens -- one source of truth shared by CSS keyframes and any
+     inline transition-duration styles. */
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 320ms;
+  --motion-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-ease-out: cubic-bezier(0, 0, 0.2, 1);
 }
 
 .dark {
@@ -70,6 +89,12 @@
   --status-info-bg: #082f45;
   --status-neutral: #94a3b8;
   --status-neutral-bg: #1c2739;
+
+  --sidebar: #0e1626;
+  --sidebar-foreground: #e2e8f0;
+  --sidebar-border: #22314a;
+  --sidebar-accent: #17293b;
+  --sidebar-accent-foreground: #7dd3fc;
 }
 
 @theme inline {
@@ -102,6 +127,12 @@
   --color-status-neutral: var(--status-neutral);
   --color-status-neutral-bg: var(--status-neutral-bg);
 
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -125,5 +156,18 @@
      jitter as digits change (ui-ux-pro-max: number-tabular). */
   .tabular-nums {
     font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Respect the user's OS-level motion preference: decorative/looping
+   animation collapses to effectively instant, functional state changes
+   (e.g. a loader reaching its final position) still happen, just without
+   the transition. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

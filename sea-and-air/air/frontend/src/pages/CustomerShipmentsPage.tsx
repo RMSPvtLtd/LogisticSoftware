@@ -4,7 +4,7 @@ import { Package } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { StageBadge } from "@/components/shared/StageBadge"
 import { RiskBadge } from "@/components/shared/RiskBadge"
-import { LoadingState, ErrorState, EmptyState } from "@/components/shared/States"
+import { ErrorState, EmptyState, TableSkeleton } from "@/components/shared/States"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAsync } from "@/hooks/useAsync"
@@ -34,7 +34,7 @@ export function CustomerShipmentsPage() {
         </TabsList>
       </Tabs>
 
-      {shipments.loading && <LoadingState rows={5} />}
+      {shipments.loading && <TableSkeleton columns={5} rows={5} />}
       {!shipments.loading && shipments.error && <ErrorState message={shipments.error} onRetry={shipments.reload} />}
       {!shipments.loading && !shipments.error && (shipments.data?.length ?? 0) === 0 && (
         <EmptyState

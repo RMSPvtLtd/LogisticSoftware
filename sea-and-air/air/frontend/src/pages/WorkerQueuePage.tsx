@@ -1,10 +1,11 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
-import { ArrowClockwise, CheckCircle, ClipboardText, SignOut } from "@phosphor-icons/react"
+import { ArrowClockwise, CheckCircle, ClipboardText } from "@phosphor-icons/react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
+import { PageHeader } from "@/components/shared/PageHeader"
 import { EmptyState, ErrorState, LoadingState } from "@/components/shared/States"
 import { useAsync } from "@/hooks/useAsync"
 import { useWorkerAuth } from "@/hooks/useWorkerAuth"
@@ -12,6 +13,8 @@ import { ApiError, workerPortalApi } from "@/lib/api/client"
 import { formatRelativeTime } from "@/lib/format"
 import type { WorkerQueueItem } from "@/lib/api/types"
 
+// Chrome (identity, sign-out, sidebar) now lives in AppShell -- this page
+// only owns the queue itself.
 export function WorkerQueuePage() {
   const { worker, token, logout } = useWorkerAuth()
   const navigate = useNavigate()
@@ -20,65 +23,48 @@ export function WorkerQueuePage() {
 
   if (!worker || !token) return null // route guard already redirects; guards a render-before-redirect flash
 
-  function handleLogout() {
-    logout()
-    navigate("/worker/login")
-  }
-
   return (
-    <div className="min-h-dvh bg-background">
-      <header className="sticky top-0 z-40 border-b border-border bg-card">
-        <div className="mx-auto flex h-14 max-w-2xl items-center gap-3 px-4">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-foreground">{worker.name}</p>
-            <p className="text-xs text-muted-foreground">{worker.area.name}</p>
-          </div>
-          <Button variant="ghost" size="icon" aria-label="Sign out" onClick={handleLogout}>
-            <SignOut size={18} />
-          </Button>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-2xl px-4 py-6">
-        <div className="mb-4 flex items-center justify-between">
-          <h1 className="font-heading text-lg font-semibold text-foreground">Waiting for {worker.area.name}</h1>
+    <div className="mx-auto max-w-2xl space-y-4">
+      <PageHeader
+        title={`Waiting for ${worker.area.name}`}
+        action={
           <Button variant="ghost" size="icon" aria-label="Refresh" onClick={queue.reload}>
             <ArrowClockwise size={18} />
           </Button>
+        }
+      />
+
+      {queue.loading && <LoadingState rows={3} />}
+
+      {!queue.loading && queue.error && (
+        <ErrorState
+          message={queue.error}
+          onRetry={() => {
+            if (queue.error?.toLowerCase().includes("session")) {
+              logout()
+              navigate("/worker/login")
+            } else {
+              queue.reload()
+            }
+          }}
+        />
+      )}
+
+      {!queue.loading && !queue.error && (queue.data?.length ?? 0) === 0 && (
+        <EmptyState
+          icon={<ClipboardText size={32} />}
+          title="Nothing waiting right now"
+          description={`Shipments will show up here as soon as they're ready for ${worker.area.name}.`}
+        />
+      )}
+
+      {!queue.loading && !queue.error && (queue.data?.length ?? 0) > 0 && (
+        <div className="space-y-3">
+          {queue.data!.map((item) => (
+            <QueueItemCard key={item.id} item={item} token={token} onCompleted={queue.reload} />
+          ))}
         </div>
-
-        {queue.loading && <LoadingState rows={3} />}
-
-        {!queue.loading && queue.error && (
-          <ErrorState
-            message={queue.error}
-            onRetry={() => {
-              if (queue.error?.toLowerCase().includes("session")) {
-                logout()
-                navigate("/worker/login")
-              } else {
-                queue.reload()
-              }
-            }}
-          />
-        )}
-
-        {!queue.loading && !queue.error && (queue.data?.length ?? 0) === 0 && (
-          <EmptyState
-            icon={<ClipboardText size={32} />}
-            title="Nothing waiting right now"
-            description={`Shipments will show up here as soon as they're ready for ${worker.area.name}.`}
-          />
-        )}
-
-        {!queue.loading && !queue.error && (queue.data?.length ?? 0) > 0 && (
-          <div className="space-y-3">
-            {queue.data!.map((item) => (
-              <QueueItemCard key={item.id} item={item} token={token} onCompleted={queue.reload} />
-            ))}
-          </div>
-        )}
-      </main>
+      )}
     </div>
   )
 }
@@ -109,7 +95,7 @@ function QueueItemCard({
   }
 
   return (
-    <Card>
+    <Card id={`queue-item-${item.id}`}>
       <CardContent className="space-y-3 py-4">
         <div className="flex items-start justify-between gap-3">
           <div>

@@ -1,11 +1,14 @@
-import { Navigate, Route, Routes } from "react-router-dom"
+import { Navigate, Route, Routes, useNavigate } from "react-router-dom"
 import { Toaster } from "@/components/ui/sonner"
 import { StagesProvider } from "@/hooks/useStages"
-import { WorkerAuthProvider } from "@/hooks/useWorkerAuth"
-import { CustomerAuthProvider } from "@/hooks/useCustomerAuth"
-import { OpsShell } from "@/components/layout/OpsShell"
+import { WorkerAuthProvider, useWorkerAuth } from "@/hooks/useWorkerAuth"
+import { CustomerAuthProvider, useCustomerAuth } from "@/hooks/useCustomerAuth"
+import { AppShell } from "@/components/layout/AppShell"
+import { OPS_NAV, CUSTOMER_NAV, WORKER_NAV } from "@/components/layout/nav-config"
+import { OpsCommandPalette } from "@/components/command/OpsCommandPalette"
+import { WorkerCommandPalette } from "@/components/command/WorkerCommandPalette"
+import { CustomerCommandPalette } from "@/components/command/CustomerCommandPalette"
 import { PublicShell } from "@/components/layout/PublicShell"
-import { CustomerShell } from "@/components/layout/CustomerShell"
 import { ProtectedWorkerRoute } from "@/components/shared/ProtectedWorkerRoute"
 import { ProtectedCustomerRoute } from "@/components/shared/ProtectedCustomerRoute"
 import { ShipmentListPage } from "@/pages/ShipmentListPage"
@@ -21,14 +24,53 @@ import { CustomerShipmentsPage } from "@/pages/CustomerShipmentsPage"
 import { CustomerShipmentDetailPage } from "@/pages/CustomerShipmentDetailPage"
 import { CustomerQuotesPage } from "@/pages/CustomerQuotesPage"
 import { CustomerQuoteDetailPage } from "@/pages/CustomerQuoteDetailPage"
+import { DashboardPage } from "@/pages/DashboardPage"
+
+// Ops has no login in this MVP -- no identity/logout to pass to AppShell.
+function OpsAppShell() {
+  return <AppShell brandHref="/" navItems={OPS_NAV} commandPalette={(ctx) => <OpsCommandPalette {...ctx} />} />
+}
+
+function WorkerAppShell() {
+  const { worker, logout } = useWorkerAuth()
+  const navigate = useNavigate()
+  return (
+    <AppShell
+      brandHref="/worker/queue"
+      navItems={WORKER_NAV}
+      identityLabel={worker?.name}
+      onLogout={() => {
+        logout()
+        navigate("/worker/login")
+      }}
+      commandPalette={(ctx) => <WorkerCommandPalette {...ctx} />}
+    />
+  )
+}
+
+function CustomerAppShell() {
+  const { customer, logout } = useCustomerAuth()
+  const navigate = useNavigate()
+  return (
+    <AppShell
+      brandHref="/customer/shipments"
+      navItems={CUSTOMER_NAV}
+      identityLabel={customer?.name}
+      onLogout={() => {
+        logout()
+        navigate("/customer/login")
+      }}
+      commandPalette={(ctx) => <CustomerCommandPalette {...ctx} />}
+    />
+  )
+}
 
 function App() {
   return (
     <StagesProvider>
       <Routes>
-        <Route path="/" element={<Navigate to="/shipments" replace />} />
-
-        <Route element={<OpsShell />}>
+        <Route element={<OpsAppShell />}>
+          <Route path="/" element={<DashboardPage />} />
           <Route path="/shipments" element={<ShipmentListPage />} />
           <Route path="/shipments/:id" element={<ShipmentDetailPage />} />
           <Route path="/quotes/new" element={<QuoteFlowPage />} />
@@ -51,13 +93,14 @@ function App() {
               <Routes>
                 <Route path="login" element={<WorkerLoginPage />} />
                 <Route
-                  path="queue"
                   element={
                     <ProtectedWorkerRoute>
-                      <WorkerQueuePage />
+                      <WorkerAppShell />
                     </ProtectedWorkerRoute>
                   }
-                />
+                >
+                  <Route path="queue" element={<WorkerQueuePage />} />
+                </Route>
                 <Route path="*" element={<Navigate to="/worker/login" replace />} />
               </Routes>
             </WorkerAuthProvider>
@@ -73,7 +116,7 @@ function App() {
                 <Route
                   element={
                     <ProtectedCustomerRoute>
-                      <CustomerShell />
+                      <CustomerAppShell />
                     </ProtectedCustomerRoute>
                   }
                 >

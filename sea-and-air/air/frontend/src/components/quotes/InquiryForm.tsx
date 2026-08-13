@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
+import { RaaziqLoader } from "@/components/shared/RaaziqLoader"
 import { useAsync } from "@/hooks/useAsync"
 import { customersApi, inquiriesApi, quotesApi } from "@/lib/api/client"
 import { ApiError } from "@/lib/api/client"
@@ -219,7 +220,8 @@ export function InquiryForm() {
 
       <Separator />
 
-      <div className="flex justify-end">
+      <div className="flex items-center justify-end gap-3">
+        {submitting && <RaaziqLoader variant="inline" />}
         <Button type="submit" size="lg" disabled={!formValid || submitting} className="gap-1.5">
           {submitting ? "Generating quote…" : "Generate Quote"}
         </Button>

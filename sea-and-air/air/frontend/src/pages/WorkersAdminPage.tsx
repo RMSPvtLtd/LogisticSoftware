@@ -1,9 +1,10 @@
 import { useState } from "react"
 import { toast } from "sonner"
-import { Plus, UserCircle } from "@phosphor-icons/react"
+import { Plus } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { LoadingState, ErrorState } from "@/components/shared/States"
 import { Card, CardContent } from "@/components/ui/card"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -76,7 +77,15 @@ export function WorkersAdminPage() {
                             className="flex items-center justify-between gap-3 rounded-lg bg-muted px-3 py-2 text-sm"
                           >
                             <span className="flex items-center gap-2">
-                              <UserCircle size={18} className="text-muted-foreground" />
+                              <Avatar className="size-6">
+                                <AvatarFallback className="text-[10px]">
+                                  {w.name
+                                    .split(/\s+/)
+                                    .slice(0, 2)
+                                    .map((p) => p[0]?.toUpperCase())
+                                    .join("")}
+                                </AvatarFallback>
+                              </Avatar>
                               <span className="font-medium text-foreground">{w.name}</span>
                               <span className="text-muted-foreground">@{w.username}</span>
                             </span>
