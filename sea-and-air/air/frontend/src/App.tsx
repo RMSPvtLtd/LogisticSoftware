@@ -25,6 +25,7 @@ import { CustomerShipmentDetailPage } from "@/pages/CustomerShipmentDetailPage"
 import { CustomerQuotesPage } from "@/pages/CustomerQuotesPage"
 import { CustomerQuoteDetailPage } from "@/pages/CustomerQuoteDetailPage"
 import { DashboardPage } from "@/pages/DashboardPage"
+import { LoaderPreviewPage } from "@/pages/LoaderPreviewPage"
 
 // Ops has no login in this MVP -- no identity/logout to pass to AppShell.
 function OpsAppShell() {
@@ -80,6 +81,7 @@ function App() {
         </Route>
 
         <Route element={<PublicShell />}>
+          <Route path="/loading" element={<LoaderPreviewPage />} />
           <Route path="/track" element={<TrackingPage />} />
           <Route path="/track/sea" element={<TrackingPage />} />
           <Route path="/track/sea/:containerNumber" element={<TrackingPage />} />

@@ -151,7 +151,7 @@ export function ShipmentListPage() {
       {!loading && !error && visibleShipments.length > 0 && (
         <div className="overflow-x-auto rounded-xl border border-border">
           <Table>
-            <TableHeader className="sticky top-14 z-10 bg-card">
+            <TableHeader>
               <TableRow>
                 <SortableHead label="Job Number" sortKey="job_number" sort={sort} onSort={toggleSort} />
                 <TableHead>Customer</TableHead>

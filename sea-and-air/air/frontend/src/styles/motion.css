@@ -4,32 +4,15 @@
    here is transform/opacity/stroke-based (GPU-friendly), no layout
    properties are animated. */
 
-@keyframes truck-drive {
+/* RaaziqLoader's road-marker conveyor -- the dot field is periodic at one
+   spacing unit, so shifting by exactly that and looping is seamless: no
+   reset jump, no JS. */
+@keyframes dot-conveyor {
   from {
     transform: translateX(0px);
   }
   to {
-    transform: translateX(200px);
-  }
-}
-
-@keyframes dash-flow {
-  from {
-    stroke-dashoffset: 24;
-  }
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-@keyframes pulse-dot {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.5;
-    transform: scale(1.4);
+    transform: translateX(-16px);
   }
 }
 
