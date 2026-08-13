@@ -37,6 +37,14 @@ export function LoaderPreviewPage() {
       <Section title="ship — sea search">
         <RaaziqLoader variant="inline" vehicle="ship" label="Fetching shipment information…" />
       </Section>
+
+      <Section title="plane — full">
+        <RaaziqLoader variant="full" vehicle="plane" label="Fetching shipment information…" />
+      </Section>
+
+      <Section title="ship — full">
+        <RaaziqLoader variant="full" vehicle="ship" label="Fetching shipment information…" />
+      </Section>
     </div>
   )
 }

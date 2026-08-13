@@ -16,6 +16,17 @@
   }
 }
 
+/* Same shift-and-loop trick as dot-conveyor, but for the ship's sea-wave
+   line, whose period is 32px instead of 16px. */
+@keyframes wave-conveyor {
+  from {
+    transform: translateX(0px);
+  }
+  to {
+    transform: translateX(-32px);
+  }
+}
+
 @keyframes fade-up {
   from {
     opacity: 0;
