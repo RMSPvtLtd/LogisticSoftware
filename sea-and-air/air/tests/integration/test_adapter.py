@@ -78,7 +78,7 @@ def test_invalid_stage_from_adapter_does_not_mutate_shipment(db_session):
 def test_backwards_stage_from_adapter_does_not_mutate_shipment(db_session):
     shipment = _accepted_shipment(db_session)
     advance_stage(db_session, shipment, ShipmentStage.AIRWAY_BILL, actor="ops", note=None, source=EventSource.MANUAL)
-    advance_stage(db_session, shipment, ShipmentStage.GD, actor="ops", note=None, source=EventSource.MANUAL)
+    advance_stage(db_session, shipment, ShipmentStage.PICKUP, actor="ops", note=None, source=EventSource.MANUAL)
 
     adapter = MockTrackingAdapter(
         {
@@ -94,4 +94,4 @@ def test_backwards_stage_from_adapter_does_not_mutate_shipment(db_session):
     with pytest.raises(TrackingIngestionFailed):
         ingest_adapter_update(db_session, shipment, adapter, "REF3")
 
-    assert shipment.stage == ShipmentStage.GD
+    assert shipment.stage == ShipmentStage.PICKUP

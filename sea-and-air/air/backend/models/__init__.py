@@ -2,6 +2,7 @@ from models.enums import (
     ChargeBasis,
     ChargeKind,
     EventSource,
+    Priority,
     QuoteStatus,
     ReferenceType,
     ShipmentStage,
@@ -9,6 +10,7 @@ from models.enums import (
     UnitOfMeasure,
 )
 from models.customer import Customer
+from models.document import ShipmentDocument
 from models.inquiry import Inquiry
 from models.rate_card import RateCard, RateCardBreak, RateCardCharge
 from models.quote import Quote, QuoteLineItem
@@ -19,6 +21,7 @@ __all__ = [
     "ChargeBasis",
     "ChargeKind",
     "EventSource",
+    "Priority",
     "QuoteStatus",
     "ReferenceType",
     "ShipmentStage",
@@ -33,6 +36,7 @@ __all__ = [
     "QuoteLineItem",
     "JobNumberCounter",
     "Shipment",
+    "ShipmentDocument",
     "ShipmentReference",
     "StatusEvent",
     "Area",

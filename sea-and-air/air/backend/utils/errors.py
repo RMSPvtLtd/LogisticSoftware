@@ -71,3 +71,10 @@ class Unauthorized(DomainError):
     the account is deactivated."""
 
     http_status = 401
+
+
+class InvalidDocument(DomainError):
+    """An uploaded document failed validation (wrong content type, not a
+    real PDF, empty, or exceeds the size limit)."""
+
+    http_status = 422

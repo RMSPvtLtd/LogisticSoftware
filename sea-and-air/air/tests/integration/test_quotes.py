@@ -7,8 +7,9 @@ from sqlalchemy import select
 
 import models as m
 from utils.errors import InvalidQuoteState, QuoteExpired
-from models.enums import EventSource, QuoteStatus, ShipmentStage
+from models.enums import EventSource, OPERATIONAL_STAGE_ORDER, QuoteStatus, ShipmentStage
 from services.quotes import LineItemOverride, accept_quote, generate_quote, override_line_items, send_quote
+from services.transitions import advance_stage
 from factories import make_customer, make_inquiry, simple_rate_card
 
 TODAY = date(2026, 6, 1)
@@ -34,13 +35,19 @@ def test_generated_quote_starts_draft(db_session):
     assert quote.valid_until == TODAY + timedelta(days=get_settings().quote_validity_days)
 
 
-def test_editing_sent_quote_is_rejected(db_session):
+def test_editing_sent_quote_is_still_allowed(db_session):
+    # Line-item editing is gated on the shipment's stage, not the quote's own
+    # status (see services.quotes.override_line_items) -- a sent quote whose
+    # shipment hasn't been invoiced yet stays editable.
     quote = _quote(db_session)
     send_quote(db_session, quote.id, today=TODAY)
 
     line_item_id = quote.line_items[0].id
-    with pytest.raises(InvalidQuoteState):
-        override_line_items(db_session, quote.id, [LineItemOverride(line_item_id, Decimal("1"))], today=TODAY)
+    updated = override_line_items(db_session, quote.id, [LineItemOverride(line_item_id, Decimal("1"))], today=TODAY)
+
+    updated_line = next(li for li in updated.line_items if li.id == line_item_id)
+    assert updated_line.final_total == Decimal("1.00")
+    assert updated_line.is_manual_override is True
 
 
 def test_sending_accepted_quote_is_rejected(db_session):
@@ -69,16 +76,34 @@ def test_accepting_expired_quote_is_rejected_and_status_persisted(db_session):
     assert quote.status == QuoteStatus.EXPIRED
 
 
-def test_lazy_expiry_blocks_edit(db_session):
+def test_lazy_expiry_does_not_block_edit(db_session):
+    # Expiry is still evaluated and persisted as a status-bookkeeping side
+    # effect, but (like send/accept status) it no longer blocks editing --
+    # only the shipment reaching invoice_to_customer does.
     quote = _quote(db_session)
     much_later = TODAY + timedelta(days=365)
     line_item_id = quote.line_items[0].id
 
-    with pytest.raises(InvalidQuoteState):
-        override_line_items(
-            db_session, quote.id, [LineItemOverride(line_item_id, Decimal("1"))], today=much_later
-        )
+    updated = override_line_items(
+        db_session, quote.id, [LineItemOverride(line_item_id, Decimal("1"))], today=much_later
+    )
+
     assert quote.status == QuoteStatus.EXPIRED
+    updated_line = next(li for li in updated.line_items if li.id == line_item_id)
+    assert updated_line.final_total == Decimal("1.00")
+
+
+def test_edit_blocked_once_shipment_invoiced(db_session):
+    quote = _quote(db_session)
+    shipment = accept_quote(db_session, quote.id, "ops", today=TODAY)
+    start = OPERATIONAL_STAGE_ORDER.index(ShipmentStage.JOB_OPENING) + 1
+    for stage in OPERATIONAL_STAGE_ORDER[start:]:
+        advance_stage(db_session, shipment, stage, actor="ops", note=None, source=EventSource.MANUAL)
+    assert shipment.stage == ShipmentStage.INVOICE_TO_CUSTOMER
+
+    line_item_id = quote.line_items[0].id
+    with pytest.raises(InvalidQuoteState):
+        override_line_items(db_session, quote.id, [LineItemOverride(line_item_id, Decimal("1"))], today=TODAY)
 
 
 # --- override ---

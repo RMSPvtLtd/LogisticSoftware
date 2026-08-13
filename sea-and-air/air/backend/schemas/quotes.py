@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from models.enums import ChargeKind, QuoteStatus
+from models.enums import ChargeKind, QuoteStatus, ShipmentStage
 
 
 class QuoteGenerateRequest(BaseModel):
@@ -30,6 +30,7 @@ class QuoteRead(BaseModel):
     id: int
     inquiry_id: int
     status: QuoteStatus
+    shipment_stage: ShipmentStage | None
     currency: str
     subtotal: Decimal
     markup_amount: Decimal

@@ -40,11 +40,11 @@ OPERATIONAL_STAGE_ORDER: tuple[ShipmentStage, ...] = (
     ShipmentStage.QUOTATION,
     ShipmentStage.JOB_OPENING,
     ShipmentStage.AIRWAY_BILL,
-    ShipmentStage.GD,
     ShipmentStage.PICKUP,
     ShipmentStage.GATE_IN,
     ShipmentStage.SHIPMENT_RECEIPT,
     ShipmentStage.WEIGHMENT,
+    ShipmentStage.GD,
     ShipmentStage.CUSTOMS_EXAMINATION,
     ShipmentStage.CUSTOMS_CLEARANCE,
     ShipmentStage.SCANNING,
@@ -81,10 +81,10 @@ STAGE_LABELS: dict[ShipmentStage, str] = {
 # transition rules, or worker-area assignment.
 STAGE_GROUPS: dict[ShipmentStage, str] = {
     ShipmentStage.AIRWAY_BILL: "Documentation",
-    ShipmentStage.GD: "Documentation",
     ShipmentStage.GATE_IN: "Airport",
     ShipmentStage.SHIPMENT_RECEIPT: "Airport",
     ShipmentStage.WEIGHMENT: "Airport",
+    ShipmentStage.GD: "Airport",
     ShipmentStage.CUSTOMS_EXAMINATION: "Airport",
     ShipmentStage.CUSTOMS_CLEARANCE: "Airport",
     ShipmentStage.SCANNING: "Airport",
@@ -159,6 +159,12 @@ class TransportMode(str, Enum):
     AIR = "air"
     SEA = "sea"
     ROAD = "road"
+
+
+class Priority(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
 
 
 class QuoteStatus(str, Enum):

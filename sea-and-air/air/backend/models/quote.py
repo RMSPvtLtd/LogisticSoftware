@@ -36,6 +36,15 @@ class Quote(TimestampMixin, Base):
     )
     shipment: Mapped["Shipment | None"] = relationship(back_populates="quote", uselist=False)  # noqa: F821
 
+    @property
+    def shipment_stage(self) -> "ShipmentStage | None":  # noqa: F821
+        """The current stage of this quote's shipment, or None if this quote
+        has been superseded by a later re-quote (see `services.quotes`).
+        Read by `services.quotes.override_line_items` to gate editing, and
+        exposed on `QuoteRead` so the frontend doesn't need a second request
+        to know whether editing is still allowed."""
+        return self.shipment.stage if self.shipment else None
+
 
 class QuoteLineItem(Base):
     """One priced component of a quote (freight, documentation, customs, ...).

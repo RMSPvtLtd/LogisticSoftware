@@ -1,7 +1,7 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
-import { ArrowClockwise, CheckCircle, ClipboardText } from "@phosphor-icons/react"
+import { ArrowClockwise, CheckCircle, ClipboardText, UploadSimple } from "@phosphor-icons/react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
@@ -69,6 +69,8 @@ export function WorkerQueuePage() {
   )
 }
 
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024
+
 function QueueItemCard({
   item,
   token,
@@ -80,6 +82,8 @@ function QueueItemCard({
 }) {
   const [note, setNote] = useState("")
   const [submitting, setSubmitting] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   async function handleComplete() {
     setSubmitting(true)
@@ -91,6 +95,28 @@ function QueueItemCard({
       toast.error(err instanceof ApiError ? err.message : "Could not mark this shipment done.")
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function handleFileChosen(file: File | undefined) {
+    if (!file) return
+    if (file.type !== "application/pdf") {
+      toast.error("Only PDF files can be attached.")
+      return
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      toast.error(`File exceeds the ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB upload limit.`)
+      return
+    }
+    setUploading(true)
+    try {
+      await workerPortalApi.uploadDocument(token, item.id, file)
+      toast.success("Document attached")
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not attach document.")
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
     }
   }
 
@@ -120,10 +146,28 @@ function QueueItemCard({
           aria-label={`Note for ${item.job_number}`}
         />
 
-        <Button onClick={handleComplete} disabled={submitting} className="w-full gap-1.5" size="lg">
-          <CheckCircle size={18} weight="fill" />
-          {submitting ? "Marking done…" : "Mark Done"}
-        </Button>
+        <div className="flex gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/pdf"
+            className="hidden"
+            onChange={(e) => handleFileChosen(e.target.files?.[0])}
+          />
+          <Button
+            variant="outline"
+            className="gap-1.5"
+            disabled={uploading}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <UploadSimple size={18} />
+            {uploading ? "Uploading…" : "Attach PDF"}
+          </Button>
+          <Button onClick={handleComplete} disabled={submitting} className="flex-1 gap-1.5" size="lg">
+            <CheckCircle size={18} weight="fill" />
+            {submitting ? "Marking done…" : "Mark Done"}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   )

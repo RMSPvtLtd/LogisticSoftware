@@ -1,9 +1,13 @@
 """The only writer of `Shipment.stage` after a shipment is created. Three
-entry points, each producing exactly one new `StatusEvent`:
+entry points touch `stage`, each producing exactly one new `StatusEvent`:
 
   advance_stage  -- normal progression, one step at a time, next-stage-only
   correct_stage  -- deliberate repair, may jump to any operational stage
   record_note    -- annotation only, never touches stage
+
+set_risk and set_priority also live here since they're the same kind of
+"independent of stage" shipment field, each recording its change as an
+internal note via record_note rather than a stage change.
 
 No function here updates or deletes an existing StatusEvent. Corrections and
 notes are always new rows — this is what keeps shipment history append-only.
@@ -12,7 +16,7 @@ notes are always new rows — this is what keeps shipment history append-only.
 from sqlalchemy.orm import Session
 
 from utils.errors import InvalidCorrection, InvalidTransition
-from models.enums import CORRECTABLE_STAGES, EventSource, ShipmentStage, next_stage
+from models.enums import CORRECTABLE_STAGES, EventSource, Priority, ShipmentStage, next_stage
 from models.shipment import Shipment, StatusEvent
 
 
@@ -123,4 +127,17 @@ def set_risk(
 
     note = f"Marked at risk: {risk_reason}" if is_at_risk else "Risk cleared"
     record_note(session, shipment, actor=actor, note=note, source=EventSource.SYSTEM, is_internal=True)
+    return shipment
+
+
+def set_priority(session: Session, shipment: Shipment, *, priority: Priority, actor: str) -> Shipment:
+    """Set the shipment's priority, independent of stage. Unlike risk, there
+    is no "cleared" state — a shipment always holds exactly one of the
+    three levels, defaulting to MEDIUM at creation.
+    """
+    shipment.priority = priority
+    record_note(
+        session, shipment, actor=actor,
+        note=f"Priority set to {priority.value}", source=EventSource.SYSTEM, is_internal=True,
+    )
     return shipment

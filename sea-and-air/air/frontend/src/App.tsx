@@ -81,7 +81,10 @@ function App() {
         </Route>
 
         <Route element={<PublicShell />}>
+          {/* Same showcase on both paths: /loading is the dev shorthand,
+              /landing is the one shared from the deployed site. */}
           <Route path="/loading" element={<LoaderPreviewPage />} />
+          <Route path="/landing" element={<LoaderPreviewPage />} />
           <Route path="/track" element={<TrackingPage />} />
           <Route path="/track/sea" element={<TrackingPage />} />
           <Route path="/track/sea/:containerNumber" element={<TrackingPage />} />

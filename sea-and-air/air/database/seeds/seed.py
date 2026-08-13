@@ -78,11 +78,11 @@ AREA_DEFINITIONS: list[tuple[str, ShipmentStage]] = [
 
 WORKER_DEFINITIONS: list[tuple[str, str, ShipmentStage]] = [
     ("Ayesha Raza", "ayesha.airwaybill", ShipmentStage.AIRWAY_BILL),
-    ("Usman Tariq", "usman.gd", ShipmentStage.GD),
     ("Bilal Sheikh", "bilal.pickup", ShipmentStage.PICKUP),
     ("Kamran Aziz", "kamran.gatein", ShipmentStage.GATE_IN),
     ("Nadia Yousuf", "nadia.receipt", ShipmentStage.SHIPMENT_RECEIPT),
     ("Saad Hussain", "saad.weighment", ShipmentStage.WEIGHMENT),
+    ("Usman Tariq", "usman.gd", ShipmentStage.GD),
     ("Fatima Noor", "fatima.examination", ShipmentStage.CUSTOMS_EXAMINATION),
     ("Omar Farooq", "omar.customs", ShipmentStage.CUSTOMS_CLEARANCE),
     ("Sana Malik", "sana.customs", ShipmentStage.CUSTOMS_CLEARANCE),

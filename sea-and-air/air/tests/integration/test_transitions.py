@@ -75,12 +75,12 @@ def test_advance_stage_creates_event_and_preserves_prior_events(db_session):
     initial_event_id = shipment.status_events[0].id
 
     advance_stage(db_session, shipment, ShipmentStage.AIRWAY_BILL, actor="ops", note="filed", source=EventSource.MANUAL)
-    advance_stage(db_session, shipment, ShipmentStage.GD, actor="ops", note="declared", source=EventSource.MANUAL)
+    advance_stage(db_session, shipment, ShipmentStage.PICKUP, actor="ops", note="picked up", source=EventSource.MANUAL)
 
     events = shipment.status_events
     assert [e.stage for e in events] == [
         ShipmentStage.INQUIRY, ShipmentStage.QUOTATION, ShipmentStage.JOB_OPENING,
-        ShipmentStage.AIRWAY_BILL, ShipmentStage.GD,
+        ShipmentStage.AIRWAY_BILL, ShipmentStage.PICKUP,
     ]
     assert events[0].id == initial_event_id
     assert events == sorted(events, key=lambda e: e.timestamp)
@@ -92,17 +92,17 @@ def test_advance_stage_creates_event_and_preserves_prior_events(db_session):
 def test_correction_moves_to_arbitrary_valid_stage(db_session):
     shipment = _accepted_shipment(db_session)
     advance_stage(db_session, shipment, ShipmentStage.AIRWAY_BILL, actor="ops", note=None, source=EventSource.MANUAL)
-    advance_stage(db_session, shipment, ShipmentStage.GD, actor="ops", note=None, source=EventSource.MANUAL)
+    advance_stage(db_session, shipment, ShipmentStage.PICKUP, actor="ops", note=None, source=EventSource.MANUAL)
     ids_before = [e.id for e in shipment.status_events]
 
     event = correct_stage(
-        db_session, shipment, ShipmentStage.PICKUP, actor="ops", reason="cargo already picked up, status was stale"
+        db_session, shipment, ShipmentStage.GATE_IN, actor="ops", reason="cargo already gated in, status was stale"
     )
 
-    assert shipment.stage == ShipmentStage.PICKUP
+    assert shipment.stage == ShipmentStage.GATE_IN
     assert event.source == EventSource.CORRECTION
     assert event.is_stage_change is True
-    assert "cargo already picked up" in event.note
+    assert "cargo already gated in" in event.note
     assert [e.id for e in shipment.status_events[: len(ids_before)]] == ids_before
 
 

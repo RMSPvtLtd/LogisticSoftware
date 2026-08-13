@@ -35,6 +35,8 @@ export type ChargeKind = "freight" | "documentation" | "customs" | "pickup" | "h
 
 export type ChecklistStatus = "completed" | "current" | "upcoming"
 
+export type Priority = "low" | "medium" | "high"
+
 // Decimal fields are serialized by the backend as JSON strings (Pydantic's
 // default), not numbers -- keeping them as `string` here avoids silent
 // float-precision loss; format with `formatMoney` / `Number()` at render time.
@@ -110,6 +112,7 @@ export interface Quote {
   id: number
   inquiry_id: number
   status: QuoteStatus
+  shipment_stage: ShipmentStage | null
   currency: string
   subtotal: string
   markup_amount: string
@@ -152,6 +155,7 @@ export interface Shipment {
   stage: ShipmentStage
   is_at_risk: boolean
   risk_reason: string | null
+  priority: Priority
   created_at: string
   updated_at: string
   references: ShipmentReference[]
@@ -162,6 +166,18 @@ export interface ShipmentFilters {
   stage?: ShipmentStage
   at_risk?: boolean
   mode?: TransportMode
+  priority?: Priority
+}
+
+export interface ShipmentDocument {
+  id: number
+  shipment_id: number
+  stage: ShipmentStage
+  filename: string
+  content_type: string
+  size_bytes: number
+  uploaded_by: string
+  created_at: string
 }
 
 export interface TrackingChecklistItem {

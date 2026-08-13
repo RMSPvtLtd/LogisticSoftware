@@ -13,10 +13,15 @@ Shipment is now created exactly once per Inquiry, never more.
 The stage vocabulary itself is a breaking change (docs_filed/in_transit/
 arrived/... don't map one-to-one onto the new 17-stage pipeline), so this
 migration does not attempt to remap existing stage data. It targets an
-empty/fresh database. `recreate='always'` forces the CHECK constraint
-backing each portable enum column to be rebuilt from the current Python
-enum on both SQLite and PostgreSQL, rather than relying on a plain
-ALTER COLUMN to update it (which does not reliably touch CHECK constraints).
+empty/fresh database. `recreate='auto'` (not `'always'`) is deliberate:
+SQLite has no native ALTER COLUMN TYPE, so batch mode's recreate-table
+strategy is genuinely required there -- but `portable_enum()` columns are
+plain VARCHAR (native_enum=False), so on PostgreSQL this is just a plain
+ALTER COLUMN with no real type change, no CHECK constraint involved.
+Forcing 'always' pointlessly rebuilds the table on PostgreSQL too, which
+fails there when other tables hold FK constraints against it (dropping
+the recreated table's PK conflicts with the still-live dependents) --
+'auto' lets each dialect use the strategy it actually needs.
 """
 from typing import Sequence, Union
 
@@ -45,16 +50,16 @@ OLD_SHIPMENT_STAGE = sa.Enum(
 
 
 def upgrade() -> None:
-    with op.batch_alter_table('shipment', schema=None, recreate='always') as batch_op:
+    with op.batch_alter_table('shipment', schema=None, recreate='auto') as batch_op:
         batch_op.alter_column('quote_id', existing_type=sa.Integer(), nullable=True)
         batch_op.alter_column('job_number', existing_type=sa.String(length=40), nullable=True)
         batch_op.alter_column('stage', existing_type=OLD_SHIPMENT_STAGE, type_=NEW_SHIPMENT_STAGE, nullable=False)
         batch_op.create_unique_constraint('uq_shipment_inquiry_id', ['inquiry_id'])
 
-    with op.batch_alter_table('status_event', schema=None, recreate='always') as batch_op:
+    with op.batch_alter_table('status_event', schema=None, recreate='auto') as batch_op:
         batch_op.alter_column('stage', existing_type=OLD_SHIPMENT_STAGE, type_=NEW_SHIPMENT_STAGE, nullable=False)
 
-    with op.batch_alter_table('area', schema=None, recreate='always') as batch_op:
+    with op.batch_alter_table('area', schema=None, recreate='auto') as batch_op:
         batch_op.alter_column('stage', existing_type=OLD_SHIPMENT_STAGE, type_=NEW_SHIPMENT_STAGE, nullable=False)
 
 

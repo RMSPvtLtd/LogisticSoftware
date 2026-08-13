@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from db import Base
 from models._mixins import TimestampMixin
 from models._types import portable_enum
-from models.enums import EventSource, ReferenceType, ShipmentStage
+from models.enums import EventSource, Priority, ReferenceType, ShipmentStage
 
 
 class Shipment(TimestampMixin, Base):
@@ -17,7 +17,9 @@ class Shipment(TimestampMixin, Base):
     quote is accepted, both nullable until then; each is UNIQUE when
     present. `stage` is written only by `services.transitions` (or the
     quote-lifecycle functions that call into it for the two system-driven
-    transitions before job_opening).
+    transitions before job_opening). `is_at_risk`/`risk_reason` and
+    `priority` are both independent of stage — set directly by ops at any
+    time via `services.transitions.set_risk`/`set_priority`.
     """
 
     __tablename__ = "shipment"
@@ -33,6 +35,7 @@ class Shipment(TimestampMixin, Base):
     )
     is_at_risk: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     risk_reason: Mapped[str | None] = mapped_column(Text)
+    priority: Mapped[Priority] = mapped_column(portable_enum(Priority), nullable=False, default=Priority.MEDIUM)
 
     customer: Mapped["Customer"] = relationship(back_populates="shipments")  # noqa: F821
     inquiry: Mapped["Inquiry"] = relationship(back_populates="shipment")  # noqa: F821
@@ -42,6 +45,9 @@ class Shipment(TimestampMixin, Base):
     )
     status_events: Mapped[list["StatusEvent"]] = relationship(
         back_populates="shipment", cascade="all, delete-orphan", order_by="StatusEvent.timestamp"
+    )
+    documents: Mapped[list["ShipmentDocument"]] = relationship(  # noqa: F821
+        back_populates="shipment", cascade="all, delete-orphan"
     )
 
 

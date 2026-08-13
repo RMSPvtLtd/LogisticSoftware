@@ -1,51 +1,62 @@
 import { RaaziqLoader } from "@/components/shared/RaaziqLoader"
 
-// Standalone preview of the RaaziqLoader variants -- not linked from any
-// nav, just a direct URL (/loading) to inspect the animation in isolation.
+// Showcase of every RaaziqLoader variant, served at both /loading (dev
+// shorthand) and /landing (the link shared from the deployed site). Not
+// linked from any nav -- direct URL only.
 export function LoaderPreviewPage() {
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-10 px-4 py-16">
+    <div className="mx-auto flex max-w-2xl flex-col gap-8 px-4 py-16">
       <div className="text-center">
-        <h1 className="font-heading text-2xl font-semibold text-foreground">RaaziqLoader</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Truck stays put; road markers conveyor past underneath.</p>
+        <h1 className="font-heading text-2xl font-semibold text-foreground">Raaziq loading animations</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          One loader per freight mode. The vehicle holds position and the world moves past it, which is what
+          reads as travel without the loop ever jumping.
+        </p>
       </div>
 
-      <Section title="full — page/section loading">
-        <RaaziqLoader variant="full" label="Loading dashboard…" />
+      <Group title="Air" />
+      <Section title="Air search — clouds drift back, speed lines stream past">
+        <RaaziqLoader variant="full" vehicle="plane" label="Fetching shipment information…" />
       </Section>
-
-      <Section title="inline — compact, next to a button">
-        <RaaziqLoader variant="inline" label="Generating quote…" />
-      </Section>
-
-      <Section title="progress — tied to real shipment stage (25%)">
-        <RaaziqLoader variant="progress" progress={0.25} />
-      </Section>
-
-      <Section title="progress — 60%">
-        <RaaziqLoader variant="progress" progress={0.6} />
-      </Section>
-
-      <Section title="progress — 100%">
-        <RaaziqLoader variant="progress" progress={1} />
-      </Section>
-
-      <Section title="plane — air search">
+      <Section title="Air — compact, inline with a panel">
         <RaaziqLoader variant="inline" vehicle="plane" label="Fetching shipment information…" />
       </Section>
 
-      <Section title="ship — sea search">
+      <Group title="Sea" />
+      <Section title="Sea search — the vessel bobs, the swell travels">
+        <RaaziqLoader variant="full" vehicle="ship" label="Fetching shipment information…" />
+      </Section>
+      <Section title="Sea — compact, inline with a panel">
         <RaaziqLoader variant="inline" vehicle="ship" label="Fetching shipment information…" />
       </Section>
 
-      <Section title="plane — full">
-        <RaaziqLoader variant="full" vehicle="plane" label="Fetching shipment information…" />
+      <Group title="Road / default" />
+      <Section title="Page or section loading">
+        <RaaziqLoader variant="full" label="Loading dashboard…" />
+      </Section>
+      <Section title="Compact, next to a button">
+        <RaaziqLoader variant="inline" label="Generating quote…" />
       </Section>
 
-      <Section title="ship — full">
-        <RaaziqLoader variant="full" vehicle="ship" label="Fetching shipment information…" />
+      <Group title="Progress — driven by a shipment's real stage" />
+      <Section title="25%">
+        <RaaziqLoader variant="progress" progress={0.25} />
+      </Section>
+      <Section title="60%">
+        <RaaziqLoader variant="progress" progress={0.6} />
+      </Section>
+      <Section title="100%">
+        <RaaziqLoader variant="progress" progress={1} />
       </Section>
     </div>
+  )
+}
+
+function Group({ title }: { title: string }) {
+  return (
+    <h2 className="mt-4 border-b border-border pb-2 font-heading text-sm font-semibold text-foreground">
+      {title}
+    </h2>
   )
 }
 

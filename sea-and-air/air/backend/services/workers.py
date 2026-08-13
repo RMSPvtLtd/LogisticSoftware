@@ -12,10 +12,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from utils.errors import NotFound, Unauthorized
+from models.document import ShipmentDocument
 from models.enums import EventSource, previous_stage
 from models.shipment import Shipment, StatusEvent
 from models.worker import Area, Worker
 from utils.security import hash_password, verify_password
+from services.documents import list_documents, upload_document
 from services.transitions import advance_stage
 
 
@@ -54,3 +56,33 @@ def complete_worker_stage(
     return advance_stage(
         session, shipment, worker.area.stage, actor=worker.name, note=note, source=EventSource.MANUAL
     )
+
+
+def _assert_shipment_in_worker_queue(worker: Worker, shipment: Shipment) -> None:
+    """Workers may only touch documents on a shipment currently in their own
+    queue (waiting to enter their area's stage) -- the same scope
+    `worker_queue` exposes and `complete_worker_stage` enforces via
+    advance_stage's next-stage-only rule.
+    """
+    if shipment.stage != previous_stage(worker.area.stage):
+        raise Unauthorized("This shipment is not currently in your queue.")
+
+
+def upload_worker_document(
+    session: Session,
+    worker: Worker,
+    shipment: Shipment,
+    *,
+    filename: str | None,
+    content_type: str | None,
+    data: bytes,
+) -> ShipmentDocument:
+    _assert_shipment_in_worker_queue(worker, shipment)
+    return upload_document(
+        session, shipment, filename=filename, content_type=content_type, data=data, actor=worker.name
+    )
+
+
+def list_worker_documents(session: Session, worker: Worker, shipment: Shipment) -> list[ShipmentDocument]:
+    _assert_shipment_in_worker_queue(worker, shipment)
+    return list_documents(session, shipment.id)
