@@ -1,4 +1,4 @@
-import { Warning } from "@phosphor-icons/react"
+import { CheckCircle, Warning } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 
 export function RiskBadge({ className }: { className?: string }) {
@@ -11,6 +11,20 @@ export function RiskBadge({ className }: { className?: string }) {
     >
       <Warning size={14} weight="fill" />
       At Risk
+    </span>
+  )
+}
+
+export function NoRiskBadge({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full bg-status-success/10 px-2.5 py-1 text-xs font-medium text-status-success",
+        className,
+      )}
+    >
+      <CheckCircle size={14} weight="fill" />
+      No Risk
     </span>
   )
 }

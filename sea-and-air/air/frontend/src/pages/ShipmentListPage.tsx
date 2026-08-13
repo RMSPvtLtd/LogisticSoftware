@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom"
 import { CaretDown, CaretUp, Package } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { StageBadge } from "@/components/shared/StageBadge"
-import { RiskBadge } from "@/components/shared/RiskBadge"
+import { RiskBadge, NoRiskBadge } from "@/components/shared/RiskBadge"
 import { ErrorState, EmptyState, TableSkeleton } from "@/components/shared/States"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -16,17 +16,20 @@ import { formatDateTime } from "@/lib/format"
 import type { ShipmentFilters, ShipmentStage } from "@/lib/api/types"
 
 type ListTab = "active" | "completed"
-type SortKey = "job_number" | "updated_at"
+type SortKey = "job_number" | "updated_at" | "risk"
 
 export function ShipmentListPage() {
   const navigate = useNavigate()
   const { stages } = useStages()
   const [tab, setTab] = useState<ListTab>("active")
   const [filters, setFilters] = useState<ShipmentFilters>({})
+  const [route, setRoute] = useState<string>("all")
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "updated_at", dir: "desc" })
 
   function toggleSort(key: SortKey) {
-    setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }))
+    setSort((s) =>
+      s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: key === "risk" ? "desc" : "asc" },
+    )
   }
 
   const shipments = useAsync(() => shipmentsApi.list(filters), [filters.stage, filters.at_risk])
@@ -42,23 +45,35 @@ export function ShipmentListPage() {
     [inquiries.data],
   )
 
+  function routeOf(shipment: { inquiry_id: number }) {
+    const inquiry = inquiryById.get(shipment.inquiry_id)
+    return inquiry ? `${inquiry.origin} → ${inquiry.destination}` : ""
+  }
+
+  const routeOptions = useMemo(
+    () => Array.from(new Set((shipments.data ?? []).map(routeOf).filter(Boolean))).sort(),
+    [shipments.data, inquiryById],
+  )
+
   const visibleShipments = useMemo(() => {
-    const filtered = (shipments.data ?? []).filter((s) =>
-      tab === "completed" ? s.stage === "invoice_to_customer" : s.stage !== "invoice_to_customer",
-    )
+    const filtered = (shipments.data ?? [])
+      .filter((s) => (tab === "completed" ? s.stage === "invoice_to_customer" : s.stage !== "invoice_to_customer"))
+      .filter((s) => route === "all" || routeOf(s) === route)
     const sorted = [...filtered].sort((a, b) => {
-      const av = sort.key === "job_number" ? (a.job_number ?? "") : a.updated_at
-      const bv = sort.key === "job_number" ? (b.job_number ?? "") : b.updated_at
+      const av =
+        sort.key === "job_number" ? (a.job_number ?? "") : sort.key === "risk" ? Number(a.is_at_risk) : a.updated_at
+      const bv =
+        sort.key === "job_number" ? (b.job_number ?? "") : sort.key === "risk" ? Number(b.is_at_risk) : b.updated_at
       const cmp = av < bv ? -1 : av > bv ? 1 : 0
       return sort.dir === "asc" ? cmp : -cmp
     })
     return sorted
-  }, [shipments.data, tab, sort])
+  }, [shipments.data, tab, sort, route, inquiryById])
 
   const loading = shipments.loading || customers.loading || inquiries.loading
   const error = shipments.error ?? customers.error ?? inquiries.error
 
-  const hasActiveFilters = filters.stage !== undefined || filters.at_risk !== undefined
+  const hasActiveFilters = filters.stage !== undefined || filters.at_risk !== undefined || route !== "all"
 
   return (
     <div>
@@ -113,8 +128,29 @@ export function ShipmentListPage() {
           </SelectContent>
         </Select>
 
+        <Select value={route} onValueChange={setRoute}>
+          <SelectTrigger className="w-48" aria-label="Filter by route">
+            <SelectValue placeholder="All routes" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All routes</SelectItem>
+            {routeOptions.map((r) => (
+              <SelectItem key={r} value={r}>
+                {r}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
         {hasActiveFilters && (
-          <Button variant="ghost" size="sm" onClick={() => setFilters({})}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setFilters({})
+              setRoute("all")
+            }}
+          >
             Clear filters
           </Button>
         )}
@@ -158,7 +194,7 @@ export function ShipmentListPage() {
                 <TableHead>Route</TableHead>
                 <TableHead>Stage</TableHead>
                 <SortableHead label="Last Updated" sortKey="updated_at" sort={sort} onSort={toggleSort} />
-                <TableHead>Risk</TableHead>
+                <SortableHead label="Risk" sortKey="risk" sort={sort} onSort={toggleSort} />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -190,7 +226,7 @@ export function ShipmentListPage() {
                     <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">
                       {formatDateTime(shipment.updated_at)}
                     </TableCell>
-                    <TableCell>{shipment.is_at_risk && <RiskBadge />}</TableCell>
+                    <TableCell>{shipment.is_at_risk ? <RiskBadge /> : <NoRiskBadge />}</TableCell>
                   </TableRow>
                 )
               })}
