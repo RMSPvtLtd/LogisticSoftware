@@ -1,15 +1,17 @@
 import { useMemo, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { toast } from "sonner"
-import { CheckCircle, PaperPlaneTilt, PencilSimpleLine } from "@phosphor-icons/react"
+import { CheckCircle, DownloadSimple, FileText, PaperPlaneTilt, PencilSimpleLine, Receipt } from "@phosphor-icons/react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { LoadingState, ErrorState } from "@/components/shared/States"
 import { useAsync } from "@/hooks/useAsync"
-import { inquiriesApi, quotesApi, ApiError } from "@/lib/api/client"
+import { companiesApi, inquiriesApi, invoicesApi, quotesApi, ApiError } from "@/lib/api/client"
 import { formatDate, formatMoney } from "@/lib/format"
 import type { Quote, Shipment } from "@/lib/api/types"
 
@@ -39,18 +41,31 @@ export function QuoteBreakdown({ quoteId }: { quoteId: number }) {
 
   return (
     <div className="space-y-6">
-      {inquiry.data && (
-        <p className="text-sm text-muted-foreground">
-          {inquiry.data.origin} → {inquiry.data.destination} · {inquiry.data.mode.toUpperCase()} ·{" "}
-          {inquiry.data.cargo_type} · Incoterm {inquiry.data.incoterm}
-        </p>
-      )}
+      <div className="flex items-start justify-between gap-3">
+        {inquiry.data && (
+          <p className="text-sm text-muted-foreground">
+            {inquiry.data.origin} → {inquiry.data.destination} · {inquiry.data.mode.toUpperCase()} ·{" "}
+            {inquiry.data.cargo_type} · Incoterm {inquiry.data.incoterm}
+          </p>
+        )}
+        <a
+          href={quotesApi.pdfUrl(quote.data.id)}
+          target="_blank"
+          rel="noreferrer"
+          className="flex shrink-0 items-center gap-1.5 text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <FileText size={16} />
+          Preview PDF
+        </a>
+      </div>
 
       <LineItemsCard quote={quote.data} onSaved={quote.reload} />
 
-      <SummaryCard quote={quote.data} />
+      <SummaryCard quote={quote.data} onSaved={quote.reload} />
 
       <ActionsBar quote={quote.data} onSent={quote.reload} onAccepted={setAcceptedShipment} />
+
+      {quote.data.status === "accepted" && <InvoiceSection quote={quote.data} onCreated={quote.reload} />}
     </div>
   )
 }
@@ -151,7 +166,28 @@ function LineItemsCard({ quote, onSaved }: { quote: Quote; onSaved: () => void }
   )
 }
 
-function SummaryCard({ quote }: { quote: Quote }) {
+function SummaryCard({ quote, onSaved }: { quote: Quote; onSaved: () => void }) {
+  const editable = quote.shipment_stage !== "invoice_to_customer"
+  const hasAdjustments = Number(quote.tax_amount) > 0 || Number(quote.discount_amount) > 0
+  const [editing, setEditing] = useState(false)
+  const [taxAmount, setTaxAmount] = useState(quote.tax_amount)
+  const [discountAmount, setDiscountAmount] = useState(quote.discount_amount)
+  const [saving, setSaving] = useState(false)
+
+  async function handleSaveAdjustments() {
+    setSaving(true)
+    try {
+      await quotesApi.setAdjustments(quote.id, taxAmount || "0", discountAmount || "0")
+      toast.success("Adjustments updated")
+      setEditing(false)
+      onSaved()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not update tax/discount.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <Card>
       <CardContent className="space-y-1.5 py-5 text-sm">
@@ -163,11 +199,57 @@ function SummaryCard({ quote }: { quote: Quote }) {
           <span>Markup</span>
           <span className="tabular-nums">{formatMoney(quote.markup_amount, quote.currency)}</span>
         </div>
+        {(hasAdjustments || editing) && (
+          <>
+            <div className="flex items-center justify-between text-muted-foreground">
+              <span>Tax</span>
+              {editing ? (
+                <Input
+                  type="number" step="0.01" value={taxAmount}
+                  onChange={(e) => setTaxAmount(e.target.value)}
+                  className="h-7 w-24 text-right tabular-nums" aria-label="Tax amount"
+                />
+              ) : (
+                <span className="tabular-nums">{formatMoney(quote.tax_amount, quote.currency)}</span>
+              )}
+            </div>
+            <div className="flex items-center justify-between text-muted-foreground">
+              <span>Discount</span>
+              {editing ? (
+                <Input
+                  type="number" step="0.01" value={discountAmount}
+                  onChange={(e) => setDiscountAmount(e.target.value)}
+                  className="h-7 w-24 text-right tabular-nums" aria-label="Discount amount"
+                />
+              ) : (
+                <span className="tabular-nums">-{formatMoney(quote.discount_amount, quote.currency)}</span>
+              )}
+            </div>
+          </>
+        )}
         <div className="mt-2 flex justify-between border-t border-border pt-2 text-base font-semibold text-foreground">
           <span>Total</span>
           <span className="tabular-nums">{formatMoney(quote.total, quote.currency)}</span>
         </div>
         <p className="pt-1 text-xs text-muted-foreground">Valid until {formatDate(quote.valid_until)}</p>
+        {editable && (
+          <div className="flex justify-end pt-1">
+            {editing ? (
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setEditing(false)} disabled={saving}>
+                  Cancel
+                </Button>
+                <Button size="sm" onClick={handleSaveAdjustments} disabled={saving}>
+                  {saving ? "Saving…" : "Save"}
+                </Button>
+              </div>
+            ) : (
+              <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+                {hasAdjustments ? "Edit tax/discount" : "Add tax or discount"}
+              </Button>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   )
@@ -255,6 +337,96 @@ function ActionsBar({
         </Button>
       </div>
     </div>
+  )
+}
+
+function InvoiceSection({ quote, onCreated }: { quote: Quote; onCreated: () => void }) {
+  if (quote.invoice_id) {
+    return <ExistingInvoiceCard invoiceId={quote.invoice_id} />
+  }
+  return <CreateInvoiceCard quoteId={quote.id} onCreated={onCreated} />
+}
+
+function ExistingInvoiceCard({ invoiceId }: { invoiceId: number }) {
+  const invoice = useAsync(() => invoicesApi.get(invoiceId), [invoiceId])
+  if (invoice.loading || !invoice.data) return null
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-status-success/20 bg-status-success/5 px-4 py-3">
+      <span className="flex items-center gap-2 text-sm text-status-success">
+        <Receipt size={18} weight="fill" />
+        Invoice: <span className="font-medium tabular-nums">{invoice.data.invoice_number}</span>
+      </span>
+      <div className="flex gap-2">
+        <Link to={`/invoices/${invoiceId}`} className="text-sm text-muted-foreground underline">
+          View invoice
+        </Link>
+        <a
+          href={invoicesApi.pdfUrl(invoiceId)}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-1 text-sm text-muted-foreground underline"
+        >
+          <DownloadSimple size={14} />
+          PDF
+        </a>
+      </div>
+    </div>
+  )
+}
+
+function CreateInvoiceCard({ quoteId, onCreated }: { quoteId: number; onCreated: () => void }) {
+  const companies = useAsync(() => companiesApi.list(), [])
+  const [companyId, setCompanyId] = useState<string>("")
+  const [creating, setCreating] = useState(false)
+
+  const defaultCompanyId = useMemo(() => {
+    const list = companies.data ?? []
+    return String((list.find((c) => c.is_default) ?? list[0])?.id ?? "")
+  }, [companies.data])
+  const selectedCompanyId = companyId || defaultCompanyId
+
+  async function handleCreate() {
+    if (!selectedCompanyId) return
+    setCreating(true)
+    try {
+      await invoicesApi.createFromQuote(quoteId, Number(selectedCompanyId))
+      toast.success("Invoice created")
+      onCreated()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not create invoice.")
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Invoice</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-wrap items-end gap-3">
+        <div className="min-w-48 space-y-1.5">
+          <Label>Bill from</Label>
+          <Select value={selectedCompanyId} onValueChange={setCompanyId}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder={companies.loading ? "Loading…" : "Select a company"} />
+            </SelectTrigger>
+            <SelectContent>
+              {(companies.data ?? []).map((c) => (
+                <SelectItem key={c.id} value={String(c.id)}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button onClick={handleCreate} disabled={creating || !selectedCompanyId} className="gap-1.5">
+          <Receipt size={16} />
+          {creating ? "Creating invoice…" : "Create Invoice from Quote"}
+        </Button>
+      </CardContent>
+    </Card>
   )
 }
 

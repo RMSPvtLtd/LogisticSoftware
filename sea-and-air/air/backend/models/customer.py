@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, String
+from sqlalchemy import Boolean, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db import Base
@@ -24,6 +24,7 @@ class Customer(TimestampMixin, Base):
     company_name: Mapped[str | None] = mapped_column(String(200))
     email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True, index=True)
     phone: Mapped[str | None] = mapped_column(String(50))
+    address: Mapped[str | None] = mapped_column(Text)
 
     username: Mapped[str | None] = mapped_column(String(60), unique=True, index=True)
     password_hash: Mapped[str | None] = mapped_column(String(255))

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -6,9 +6,22 @@ from db import get_db
 from utils.dependencies import current_actor
 from utils.errors import NotFound
 from models.quote import Quote
-from schemas.quotes import QuoteGenerateRequest, QuoteLineItemsOverrideRequest, QuoteRead
+from schemas.quotes import (
+    QuoteAdjustmentsRequest,
+    QuoteGenerateRequest,
+    QuoteLineItemsOverrideRequest,
+    QuoteRead,
+)
 from schemas.shipments import ShipmentRead
-from services.quotes import LineItemOverride, accept_quote, generate_quote, override_line_items, send_quote
+from services.pdf_documents import render_quote_pdf
+from services.quotes import (
+    LineItemOverride,
+    accept_quote,
+    generate_quote,
+    override_line_items,
+    send_quote,
+    set_quote_adjustments,
+)
 
 router = APIRouter(prefix="/quotes", tags=["quotes"])
 
@@ -41,9 +54,29 @@ def patch_line_items(
     return override_line_items(db, quote_id, overrides)
 
 
+@router.patch("/{quote_id}/adjustments", response_model=QuoteRead)
+def patch_adjustments(quote_id: int, payload: QuoteAdjustmentsRequest, db: Session = Depends(get_db)) -> Quote:
+    return set_quote_adjustments(
+        db, quote_id, tax_amount=payload.tax_amount, discount_amount=payload.discount_amount
+    )
+
+
+@router.get("/{quote_id}/pdf")
+def download_pdf(quote_id: int, db: Session = Depends(get_db)) -> Response:
+    quote = db.get(Quote, quote_id)
+    if quote is None:
+        raise NotFound(f"Quote {quote_id} not found")
+    pdf_bytes = render_quote_pdf(db, quote)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="quote-{quote.id}.pdf"'},
+    )
+
+
 @router.post("/{quote_id}/send", response_model=QuoteRead)
 def send(quote_id: int, db: Session = Depends(get_db)) -> Quote:
-    """MVP behavior: marks the quote as sent only; no email or PDF is generated."""
+    """MVP behavior: marks the quote as sent only; no email is generated."""
     return send_quote(db, quote_id)
 
 

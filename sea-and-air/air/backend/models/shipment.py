@@ -36,6 +36,12 @@ class Shipment(TimestampMixin, Base):
     is_at_risk: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     risk_reason: Mapped[str | None] = mapped_column(Text)
     priority: Mapped[Priority] = mapped_column(portable_enum(Priority), nullable=False, default=Priority.MEDIUM)
+    # Known once booked -- set via services.shipments.set_routing, printed on
+    # the quote/invoice PDF's "particulars of consignment" block. A single
+    # combined field for voyage/flight number matches how the real AWB/BL
+    # documents show it (one "Voyage/Flight No" line, not two).
+    carrier: Mapped[str | None] = mapped_column(String(120))
+    voyage_flight_number: Mapped[str | None] = mapped_column(String(60))
 
     customer: Mapped["Customer"] = relationship(back_populates="shipments")  # noqa: F821
     inquiry: Mapped["Inquiry"] = relationship(back_populates="shipment")  # noqa: F821

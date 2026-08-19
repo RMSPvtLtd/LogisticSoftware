@@ -46,6 +46,8 @@ class ShipmentRead(BaseModel):
     is_at_risk: bool
     risk_reason: str | None
     priority: Priority
+    carrier: str | None
+    voyage_flight_number: str | None
     created_at: datetime
     updated_at: datetime
     references: list[ShipmentReferenceRead]
@@ -78,6 +80,11 @@ class ReferenceCreateRequest(BaseModel):
 
 class PriorityUpdateRequest(BaseModel):
     priority: Priority
+
+
+class RoutingUpdateRequest(BaseModel):
+    carrier: str | None = Field(default=None, max_length=120)
+    voyage_flight_number: str | None = Field(default=None, max_length=60)
 
 
 class RiskUpdateRequest(BaseModel):

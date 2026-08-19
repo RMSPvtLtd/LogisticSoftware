@@ -8,7 +8,7 @@ from sqlalchemy import select
 import models as m
 from utils.errors import InvalidQuoteState, QuoteExpired
 from models.enums import EventSource, OPERATIONAL_STAGE_ORDER, QuoteStatus, ShipmentStage
-from services.quotes import LineItemOverride, accept_quote, generate_quote, override_line_items, send_quote
+from services.quotes import LineItemOverride, accept_quote, generate_quote, override_line_items, send_quote, set_quote_adjustments
 from services.transitions import advance_stage
 from factories import make_customer, make_inquiry, simple_rate_card
 
@@ -140,6 +140,51 @@ def test_override_recalculates_quote_total(db_session):
     assert updated.total != original_total
     expected_subtotal = sum((li.final_total for li in updated.line_items), Decimal("0"))
     assert updated.subtotal == expected_subtotal
+
+
+# --- tax/discount adjustments ---
+
+
+def test_default_tax_and_discount_are_zero(db_session):
+    quote = _quote(db_session)
+    assert quote.tax_amount == Decimal("0")
+    assert quote.discount_amount == Decimal("0")
+
+
+def test_set_quote_adjustments_recalculates_total(db_session):
+    quote = _quote(db_session)
+    subtotal_plus_markup = quote.subtotal + quote.markup_amount
+
+    updated = set_quote_adjustments(
+        db_session, quote.id, tax_amount=Decimal("10.00"), discount_amount=Decimal("5.00"), today=TODAY
+    )
+
+    assert updated.tax_amount == Decimal("10.00")
+    assert updated.discount_amount == Decimal("5.00")
+    assert updated.total == subtotal_plus_markup + Decimal("10.00") - Decimal("5.00")
+
+
+def test_set_quote_adjustments_blocked_once_shipment_invoiced(db_session):
+    quote = _quote(db_session)
+    shipment = accept_quote(db_session, quote.id, "ops", today=TODAY)
+    start = OPERATIONAL_STAGE_ORDER.index(ShipmentStage.JOB_OPENING) + 1
+    for stage in OPERATIONAL_STAGE_ORDER[start:]:
+        advance_stage(db_session, shipment, stage, actor="ops", note=None, source=EventSource.MANUAL)
+    assert shipment.stage == ShipmentStage.INVOICE_TO_CUSTOMER
+
+    with pytest.raises(InvalidQuoteState):
+        set_quote_adjustments(db_session, quote.id, tax_amount=Decimal("1"), discount_amount=Decimal("0"), today=TODAY)
+
+
+def test_quote_adjustments_endpoint(client, db_session):
+    quote = _quote(db_session)
+    db_session.commit()
+
+    r = client.patch(f"/quotes/{quote.id}/adjustments", json={"tax_amount": "12.50", "discount_amount": "2.50"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["tax_amount"] == "12.50"
+    assert body["discount_amount"] == "2.50"
 
 
 # --- acceptance ---

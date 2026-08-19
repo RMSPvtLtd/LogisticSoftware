@@ -11,10 +11,12 @@ from sqlalchemy.exc import IntegrityError
 
 from api import (
     auth,
+    companies,
     customer_portal,
     customers,
     documents,
     inquiries,
+    invoices,
     meta,
     quotes,
     shipments,
@@ -54,6 +56,9 @@ def create_app() -> FastAPI:
     app.include_router(shipments.router)
     app.include_router(documents.router)
     app.include_router(documents.doc_router)
+    app.include_router(companies.router)
+    app.include_router(invoices.router)
+    app.include_router(invoices.quote_router)
     app.include_router(tracking.router)
     app.include_router(meta.router)
     app.include_router(auth.router)

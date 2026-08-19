@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Date, ForeignKey, Index, Numeric, String, Text
+from sqlalchemy import Date, ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db import Base
@@ -12,7 +12,10 @@ from models.enums import TransportMode
 
 class Inquiry(TimestampMixin, Base):
     """A customer's initial freight request — the information the pricing
-    engine needs to produce a quote.
+    engine needs to produce a quote. `supplier_name`/`supplier_address` are
+    the shipper of record when it differs from the billed customer (e.g. an
+    import job where Raaziq's client is the buyer, not the exporter) --
+    optional, print-only fields, not a full party entity with its own login.
     """
 
     __tablename__ = "inquiry"
@@ -31,6 +34,10 @@ class Inquiry(TimestampMixin, Base):
     ready_date: Mapped[date | None] = mapped_column(Date)
     incoterm: Mapped[str] = mapped_column(String(10), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
+    hs_code: Mapped[str | None] = mapped_column(String(20))
+    pieces: Mapped[int | None] = mapped_column(Integer)
+    supplier_name: Mapped[str | None] = mapped_column(String(200))
+    supplier_address: Mapped[str | None] = mapped_column(Text)
 
     customer: Mapped["Customer"] = relationship(back_populates="inquiries")  # noqa: F821
     quotes: Mapped[list["Quote"]] = relationship(back_populates="inquiry")  # noqa: F821

@@ -33,12 +33,20 @@ export function InquiryForm() {
   const [origin, setOrigin] = useState("")
   const [destination, setDestination] = useState("")
   const [cargoType, setCargoType] = useState("")
+  const [hsCode, setHsCode] = useState("")
+  const [pieces, setPieces] = useState("")
   const [weightKg, setWeightKg] = useState("")
   const [volumeCbm, setVolumeCbm] = useState("")
   const [dimensions, setDimensions] = useState("")
   const [incoterm, setIncoterm] = useState<string>("DAP")
   const [readyDate, setReadyDate] = useState("")
   const [description, setDescription] = useState("")
+
+  // Supplier/shipper: only needed when the billed customer isn't the party
+  // the goods actually ship from (e.g. an import job) -- optional, printed
+  // on the quote/invoice but not tied to any account.
+  const [supplierName, setSupplierName] = useState("")
+  const [supplierAddress, setSupplierAddress] = useState("")
 
   const [submitting, setSubmitting] = useState(false)
 
@@ -82,6 +90,10 @@ export function InquiryForm() {
         incoterm,
         ready_date: readyDate || null,
         description: description.trim() || null,
+        hs_code: hsCode.trim() || null,
+        pieces: pieces ? Number(pieces) : null,
+        supplier_name: supplierName.trim() || null,
+        supplier_address: supplierAddress.trim() || null,
       })
 
       const quote = await quotesApi.generate(inquiry.id)
@@ -207,13 +219,40 @@ export function InquiryForm() {
             </Field>
           </div>
 
-          <Field label="Dimensions">
-            <Input value={dimensions} onChange={(e) => setDimensions(e.target.value)} placeholder="e.g. 120 x 80 x 100 cm" />
-          </Field>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Field label="HS Code">
+              <Input value={hsCode} onChange={(e) => setHsCode(e.target.value)} placeholder="e.g. 5209.2200" />
+            </Field>
+            <Field label="Pieces">
+              <Input type="number" min="1" step="1" value={pieces} onChange={(e) => setPieces(e.target.value)} placeholder="e.g. 27" />
+            </Field>
+            <Field label="Dimensions">
+              <Input value={dimensions} onChange={(e) => setDimensions(e.target.value)} placeholder="e.g. 120 x 80 x 100 cm" />
+            </Field>
+          </div>
 
           <Field label="Notes">
             <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Anything else worth noting on this inquiry" />
           </Field>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Supplier / Shipper (optional)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Only needed when the goods ship from a different party than the customer being billed (e.g. an import job).
+          </p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Supplier name">
+              <Input value={supplierName} onChange={(e) => setSupplierName(e.target.value)} placeholder="e.g. Wolmax International" />
+            </Field>
+            <Field label="Supplier address">
+              <Input value={supplierAddress} onChange={(e) => setSupplierAddress(e.target.value)} placeholder="Supplier's address" />
+            </Field>
+          </div>
         </CardContent>
       </Card>
 

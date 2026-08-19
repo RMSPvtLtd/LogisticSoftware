@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     job_number_prefix: str = "RAZ"
     job_number_padding: int = 5
 
+    # Invoice number format: {prefix}-{year}-{sequence zero-padded to `padding`}.
+    invoice_number_prefix: str = "INV"
+    invoice_number_padding: int = 5
+
     # Browser origins allowed to call the API.
     cors_origins: str = "http://localhost:5173"
 

@@ -5,6 +5,7 @@
 
 import type {
   Area,
+  Company,
   Customer,
   CustomerCreate,
   CustomerLoginResponse,
@@ -12,6 +13,7 @@ import type {
   CustomerShipmentSummary,
   Inquiry,
   InquiryCreate,
+  Invoice,
   LineItemOverride,
   LoginResponse,
   Priority,
@@ -110,8 +112,30 @@ export const quotesApi = {
     request<Quote>("/quotes/generate", { method: "POST", body: JSON.stringify({ inquiry_id: inquiryId }) }),
   overrideLineItems: (id: number, overrides: LineItemOverride[]) =>
     request<Quote>(`/quotes/${id}/line-items`, { method: "PATCH", body: JSON.stringify({ overrides }) }),
+  setAdjustments: (id: number, taxAmount: string, discountAmount: string) =>
+    request<Quote>(`/quotes/${id}/adjustments`, {
+      method: "PATCH",
+      body: JSON.stringify({ tax_amount: taxAmount, discount_amount: discountAmount }),
+    }),
   send: (id: number) => request<Quote>(`/quotes/${id}/send`, { method: "POST" }),
   accept: (id: number) => request<Shipment>(`/quotes/${id}/accept`, { method: "POST" }),
+  pdfUrl: (id: number) => `${BASE_URL}/quotes/${id}/pdf`,
+}
+
+// --- companies (issuing entities) ---
+
+export const companiesApi = {
+  list: () => request<Company[]>("/companies"),
+}
+
+// --- invoices ---
+
+export const invoicesApi = {
+  list: () => request<Invoice[]>("/invoices"),
+  get: (id: number) => request<Invoice>(`/invoices/${id}`),
+  createFromQuote: (quoteId: number, companyId: number) =>
+    request<Invoice>(`/quotes/${quoteId}/invoice`, { method: "POST", body: JSON.stringify({ company_id: companyId }) }),
+  pdfUrl: (id: number) => `${BASE_URL}/invoices/${id}/pdf`,
 }
 
 // --- shipments ---
@@ -135,6 +159,11 @@ export const shipmentsApi = {
     request<Shipment>(`/shipments/${id}/invoice`, { method: "POST", body: JSON.stringify({ note: note || undefined }) }),
   setPriority: (id: number, priority: Priority) =>
     request<Shipment>(`/shipments/${id}/priority`, { method: "POST", body: JSON.stringify({ priority }) }),
+  setRouting: (id: number, carrier: string | null, voyageFlightNumber: string | null) =>
+    request<Shipment>(`/shipments/${id}/routing`, {
+      method: "POST",
+      body: JSON.stringify({ carrier, voyage_flight_number: voyageFlightNumber }),
+    }),
 }
 
 // --- shipment documents (PDFs, stored in Postgres -- see backend/services/documents.py) ---

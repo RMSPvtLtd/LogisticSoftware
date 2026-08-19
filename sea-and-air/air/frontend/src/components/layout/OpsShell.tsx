@@ -1,11 +1,12 @@
 import { NavLink, Outlet } from "react-router-dom"
-import { MagnifyingGlass, Package, Plus, Truck, UserCircle, Users } from "@phosphor-icons/react"
+import { MagnifyingGlass, Package, Plus, Receipt, Truck, UserCircle, Users } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 import { ThemeToggle } from "@/components/shared/ThemeToggle"
 
 const NAV_LINKS = [
   { to: "/shipments", label: "Shipments", icon: Package },
   { to: "/quotes/new", label: "New Quote", icon: Plus },
+  { to: "/invoices", label: "Invoices", icon: Receipt },
   { to: "/workers", label: "Workers", icon: Users },
   { to: "/customers", label: "Customers", icon: UserCircle },
 ]

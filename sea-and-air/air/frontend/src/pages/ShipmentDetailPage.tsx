@@ -33,7 +33,7 @@ import { formatDate } from "@/lib/format"
 import type { Priority, ReferenceType, ShipmentStage } from "@/lib/api/types"
 
 const MODE_LABEL: Record<string, string> = { air: "Air", sea: "Sea", road: "Road" }
-const REFERENCE_TYPES: ReferenceType[] = ["MAWB", "HAWB", "MBL", "HBL", "CONTAINER"]
+const REFERENCE_TYPES: ReferenceType[] = ["MAWB", "HAWB", "MBL", "HBL", "CONTAINER", "FORM_E", "LC", "PARTY_REFERENCE"]
 
 export function ShipmentDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -100,6 +100,7 @@ export function ShipmentDetailPage() {
           <CorrectionCard shipmentId={s.id} currentStage={s.stage} onDone={shipment.reload} />
           <PriorityCard shipmentId={s.id} priority={s.priority} onDone={shipment.reload} />
           <RiskCard shipmentId={s.id} isAtRisk={s.is_at_risk} riskReason={s.risk_reason} onDone={shipment.reload} />
+          <RoutingCard shipmentId={s.id} carrier={s.carrier} voyageFlightNumber={s.voyage_flight_number} onDone={shipment.reload} />
           <ReferencesCard shipmentId={s.id} references={s.references} onDone={shipment.reload} />
           <DocumentsCard shipmentId={s.id} />
 
@@ -112,6 +113,9 @@ export function ShipmentDetailPage() {
               <InfoRow label="Last updated" value={formatDate(s.updated_at)} />
               {inquiry.data && <InfoRow label="Cargo" value={inquiry.data.cargo_type} />}
               {inquiry.data && <InfoRow label="Incoterm" value={inquiry.data.incoterm} />}
+              {inquiry.data?.hs_code && <InfoRow label="HS Code" value={inquiry.data.hs_code} />}
+              {inquiry.data?.pieces && <InfoRow label="Pieces" value={String(inquiry.data.pieces)} />}
+              {inquiry.data?.supplier_name && <InfoRow label="Supplier" value={inquiry.data.supplier_name} />}
             </CardContent>
           </Card>
         </div>
@@ -351,6 +355,60 @@ function PriorityCard({
             <SelectItem value="high">High</SelectItem>
           </SelectContent>
         </Select>
+      </CardContent>
+    </Card>
+  )
+}
+
+function RoutingCard({
+  shipmentId,
+  carrier,
+  voyageFlightNumber,
+  onDone,
+}: {
+  shipmentId: number
+  carrier: string | null
+  voyageFlightNumber: string | null
+  onDone: () => void
+}) {
+  const [carrierValue, setCarrierValue] = useState(carrier ?? "")
+  const [voyageValue, setVoyageValue] = useState(voyageFlightNumber ?? "")
+  const [saving, setSaving] = useState(false)
+
+  const dirty = carrierValue !== (carrier ?? "") || voyageValue !== (voyageFlightNumber ?? "")
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      await shipmentsApi.setRouting(shipmentId, carrierValue.trim() || null, voyageValue.trim() || null)
+      toast.success("Routing updated")
+      onDone()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not update routing.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Routing</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="carrier">Carrier / Airline</Label>
+          <Input id="carrier" value={carrierValue} onChange={(e) => setCarrierValue(e.target.value)} placeholder="e.g. Emirates Airline" />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="voyage-flight">Voyage / Flight No</Label>
+          <Input id="voyage-flight" value={voyageValue} onChange={(e) => setVoyageValue(e.target.value)} placeholder="e.g. TG-0346" />
+        </div>
+        {dirty && (
+          <Button size="sm" className="w-full" onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : "Save routing"}
+          </Button>
+        )}
       </CardContent>
     </Card>
   )

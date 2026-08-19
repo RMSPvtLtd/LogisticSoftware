@@ -11,6 +11,7 @@ class CustomerCreate(BaseModel):
     company_name: str | None = Field(default=None, max_length=200)
     email: str = Field(max_length=320)
     phone: str | None = Field(default=None, max_length=50)
+    address: str | None = None
 
     @field_validator("email")
     @classmethod
@@ -28,6 +29,7 @@ class CustomerRead(BaseModel):
     company_name: str | None
     email: str
     phone: str | None
+    address: str | None
     username: str | None
     portal_active: bool
     created_at: datetime

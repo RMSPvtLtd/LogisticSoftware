@@ -174,6 +174,15 @@ class QuoteStatus(str, Enum):
     EXPIRED = "expired"
 
 
+class InvoiceStatus(str, Enum):
+    DRAFT = "draft"
+    ISSUED = "issued"
+    PAID = "paid"
+    CANCELLED = "cancelled"
+    # No "partially paid" -- nothing in this app tracks partial payments, so
+    # that state would carry no real backing data. Extend if that changes.
+
+
 class EventSource(str, Enum):
     MANUAL = "manual"
     AUTOMATED = "automated"
@@ -188,6 +197,9 @@ class ReferenceType(str, Enum):
     MBL = "MBL"
     HBL = "HBL"
     CONTAINER = "CONTAINER"
+    FORM_E = "FORM_E"
+    LC = "LC"
+    PARTY_REFERENCE = "PARTY_REFERENCE"
 
 
 class ChargeKind(str, Enum):

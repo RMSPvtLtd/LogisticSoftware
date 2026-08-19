@@ -29,13 +29,24 @@ export type QuoteStatus = "draft" | "sent" | "accepted" | "expired"
 
 export type EventSource = "manual" | "automated" | "system" | "correction"
 
-export type ReferenceType = "JOB_NUMBER" | "MAWB" | "HAWB" | "MBL" | "HBL" | "CONTAINER"
+export type ReferenceType =
+  | "JOB_NUMBER"
+  | "MAWB"
+  | "HAWB"
+  | "MBL"
+  | "HBL"
+  | "CONTAINER"
+  | "FORM_E"
+  | "LC"
+  | "PARTY_REFERENCE"
 
 export type ChargeKind = "freight" | "documentation" | "customs" | "pickup" | "handling" | "other"
 
 export type ChecklistStatus = "completed" | "current" | "upcoming"
 
 export type Priority = "low" | "medium" | "high"
+
+export type InvoiceStatus = "draft" | "issued" | "paid" | "cancelled"
 
 // Decimal fields are serialized by the backend as JSON strings (Pydantic's
 // default), not numbers -- keeping them as `string` here avoids silent
@@ -47,6 +58,7 @@ export interface Customer {
   company_name: string | null
   email: string
   phone: string | null
+  address: string | null
   username: string | null
   portal_active: boolean
   created_at: string
@@ -63,6 +75,7 @@ export interface CustomerCreate {
   company_name?: string | null
   email: string
   phone?: string | null
+  address?: string | null
 }
 
 export interface Inquiry {
@@ -78,6 +91,10 @@ export interface Inquiry {
   ready_date: string | null
   incoterm: string
   description: string | null
+  hs_code: string | null
+  pieces: number | null
+  supplier_name: string | null
+  supplier_address: string | null
   created_at: string
   updated_at: string
 }
@@ -94,6 +111,10 @@ export interface InquiryCreate {
   ready_date?: string | null
   incoterm: string
   description?: string | null
+  hs_code?: string | null
+  pieces?: number | null
+  supplier_name?: string | null
+  supplier_address?: string | null
 }
 
 export interface QuoteLineItem {
@@ -113,14 +134,22 @@ export interface Quote {
   inquiry_id: number
   status: QuoteStatus
   shipment_stage: ShipmentStage | null
+  invoice_id: number | null
   currency: string
   subtotal: string
   markup_amount: string
+  tax_amount: string
+  discount_amount: string
   total: string
   valid_until: string
   created_at: string
   updated_at: string
   line_items: QuoteLineItem[]
+}
+
+export interface QuoteAdjustments {
+  tax_amount: string
+  discount_amount: string
 }
 
 export interface LineItemOverride {
@@ -156,6 +185,8 @@ export interface Shipment {
   is_at_risk: boolean
   risk_reason: string | null
   priority: Priority
+  carrier: string | null
+  voyage_flight_number: string | null
   created_at: string
   updated_at: string
   references: ShipmentReference[]
@@ -264,6 +295,65 @@ export interface StageMeta {
   stage: ShipmentStage
   label: string
   group: string | null
+}
+
+// --- companies (issuing entities) and invoices ---
+
+export interface Company {
+  id: number
+  name: string
+  address: string
+  phone: string | null
+  email: string | null
+  website: string | null
+  tax_id_label: string | null
+  tax_id: string | null
+  company_reg_no: string | null
+  is_default: boolean
+}
+
+export interface InvoiceLineItem {
+  id: number
+  kind: ChargeKind
+  description: string
+  quantity: string
+  unit_price: string
+  amount: string
+}
+
+export interface Invoice {
+  id: number
+  invoice_number: string
+  quote_id: number
+  shipment_id: number
+  customer_id: number
+  company_id: number
+  status: InvoiceStatus
+  issued_date: string
+  currency: string
+  subtotal: string
+  markup_amount: string
+  tax_amount: string
+  discount_amount: string
+  total: string
+  customer_name_snapshot: string
+  customer_address_snapshot: string | null
+  supplier_name_snapshot: string | null
+  supplier_address_snapshot: string | null
+  origin_snapshot: string
+  destination_snapshot: string
+  mode_snapshot: string
+  incoterm_snapshot: string
+  hs_code_snapshot: string | null
+  pieces_snapshot: number | null
+  weight_kg_snapshot: string
+  volume_cbm_snapshot: string
+  chargeable_weight_kg_snapshot: string
+  carrier_snapshot: string | null
+  voyage_flight_number_snapshot: string | null
+  job_number_snapshot: string | null
+  created_at: string
+  line_items: InvoiceLineItem[]
 }
 
 // --- worker portal / auth ---

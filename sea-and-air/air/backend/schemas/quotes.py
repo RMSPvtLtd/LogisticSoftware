@@ -31,9 +31,12 @@ class QuoteRead(BaseModel):
     inquiry_id: int
     status: QuoteStatus
     shipment_stage: ShipmentStage | None
+    invoice_id: int | None
     currency: str
     subtotal: Decimal
     markup_amount: Decimal
+    tax_amount: Decimal
+    discount_amount: Decimal
     total: Decimal
     valid_until: date
     created_at: datetime
@@ -48,3 +51,8 @@ class LineItemOverrideRequest(BaseModel):
 
 class QuoteLineItemsOverrideRequest(BaseModel):
     overrides: list[LineItemOverrideRequest] = Field(min_length=1)
+
+
+class QuoteAdjustmentsRequest(BaseModel):
+    tax_amount: Decimal = Field(ge=0)
+    discount_amount: Decimal = Field(ge=0)

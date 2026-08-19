@@ -2,9 +2,10 @@
 lane with multiple rate breaks, four customers, four inquiries carried to
 different points of the workflow (a draft quote, a shipment mid-Airport-
 phase, an accepted shipment marked at risk, and one carried all the way to
-Invoice to Customer), the thirteen worker areas (one per worker-assignable
-stage), a demo worker account per area, and a customer portal login for the
-two higher-volume demo customers.
+Invoice to Customer, which also gets a real Invoice generated from its
+quote), the thirteen worker areas (one per worker-assignable stage), a demo
+worker account per area, a customer portal login for the two higher-volume
+demo customers, and the two real Raaziq issuing entities (Pakistan and UK).
 
 Sea and road rate cards are not seeded -- this deployment only quotes air
 freight (the TransportMode enum still supports sea/road for later, but no
@@ -42,9 +43,12 @@ from models.enums import (  # noqa: E402
 )
 from schemas.inquiries import InquiryCreate  # noqa: E402
 from utils.security import hash_password  # noqa: E402
+from services.companies import list_companies  # noqa: E402
 from services.customers import grant_portal_access  # noqa: E402
 from services.inquiries import create_inquiry  # noqa: E402
+from services.invoices import create_invoice_from_quote  # noqa: E402
 from services.quotes import accept_quote, generate_quote, send_quote  # noqa: E402
+from services.shipments import set_routing  # noqa: E402
 from services.transitions import advance_stage, set_risk  # noqa: E402
 
 SEED_TODAY = date(2026, 6, 1)
@@ -111,6 +115,47 @@ def _seed_customer(session: Session, *, name: str, company_name: str, email: str
     return customer
 
 
+def _seed_companies(session: Session) -> None:
+    # Real Raaziq letterheads, from the two reference documents read this
+    # session -- non-sensitive fields only. Bank details are seeded as
+    # placeholders, never the real account numbers/IBAN read from those
+    # documents.
+    _get_or_create(
+        session, m.Company, {"name": "Raaziq International (Pvt) Ltd"},
+        {
+            "address": "The Enterprise, Building 2, 4th Floor, 15-KM Multan Road, Lahore, Pakistan",
+            "phone": "+92-42-37516307-20",
+            "email": "info@raaziq.com",
+            "website": "www.raaziq.com",
+            "tax_id_label": "NTN",
+            "tax_id": "DEMO-0000000",
+            "company_reg_no": "DEMO-0000000",
+            "bank_name": "Demo Bank Pakistan",
+            "bank_account_title": "Raaziq International (Pvt) Ltd",
+            "bank_account_number": "DEMO-0000000",
+            "bank_sort_code": "DEMO-0000",
+            "is_default": True,
+        },
+    )
+    _get_or_create(
+        session, m.Company, {"name": "Raaziq International Limited - UK"},
+        {
+            "address": "12 Devoke Grove, Farnworth, Bolton, United Kingdom BL4 0PU",
+            "phone": "0044-7459673319",
+            "email": "info@raaziq.com",
+            "website": "www.raaziq.com",
+            "tax_id_label": "VAT No",
+            "tax_id": "DEMO000000",
+            "company_reg_no": "DEMO00000",
+            "bank_name": "Demo Bank UK",
+            "bank_account_title": "Raaziq International Limited",
+            "bank_account_number": "DEMO0000",
+            "bank_sort_code": "00-00-00",
+            "is_default": False,
+        },
+    )
+
+
 def _seed_rate_card(session: Session) -> m.RateCard:
     rate_card, created = _get_or_create(
         session,
@@ -147,7 +192,7 @@ def _seed_rate_card(session: Session) -> m.RateCard:
 
 def _seed_inquiry(
     session: Session, *, customer: m.Customer, cargo_type: str, weight_kg: Decimal, volume_cbm: Decimal,
-    incoterm: str, tag: str,
+    incoterm: str, tag: str, **extra,
 ) -> m.Inquiry:
     # Inquiries have no natural unique key of their own, so the seed tags each
     # one's description to make re-running the script idempotent. Creating an
@@ -160,7 +205,7 @@ def _seed_inquiry(
     payload = InquiryCreate(
         customer_id=customer.id, origin="Lahore", destination="Dubai", mode=TransportMode.AIR,
         cargo_type=cargo_type, weight_kg=weight_kg, volume_cbm=volume_cbm,
-        ready_date=SEED_TODAY, incoterm=incoterm, description=description,
+        ready_date=SEED_TODAY, incoterm=incoterm, description=description, **extra,
     )
     return create_inquiry(session, payload)
 
@@ -195,6 +240,7 @@ def _walk_to(session: Session, shipment: m.Shipment, target: ShipmentStage, acto
 
 
 def run(session: Session) -> None:
+    _seed_companies(session)
     _seed_rate_card(session)
     areas = _seed_areas(session)
     _seed_workers(session, areas)
@@ -214,7 +260,12 @@ def run(session: Session) -> None:
     inq_draft = _seed_inquiry(session, customer=bilal, cargo_type="Garments", weight_kg=Decimal("120"), volume_cbm=Decimal("0.6"), incoterm="DAP", tag="draft-quote")
     inq_mid = _seed_inquiry(session, customer=orient, cargo_type="Electronics components", weight_kg=Decimal("340"), volume_cbm=Decimal("1.8"), incoterm="FOB", tag="mid-airport")
     inq_at_risk = _seed_inquiry(session, customer=hamid, cargo_type="Auto parts", weight_kg=Decimal("610"), volume_cbm=Decimal("3.1"), incoterm="EXW", tag="accepted-at-risk")
-    inq_delivered = _seed_inquiry(session, customer=zainab, cargo_type="Textile machinery parts", weight_kg=Decimal("890"), volume_cbm=Decimal("4.5"), incoterm="DAP", tag="fully-invoiced")
+    inq_delivered = _seed_inquiry(
+        session, customer=zainab, cargo_type="Textile machinery parts", weight_kg=Decimal("890"), volume_cbm=Decimal("4.5"),
+        incoterm="DAP", tag="fully-invoiced",
+        hs_code="8452.90", pieces=12,
+        supplier_name="Zainab Textile Machinery Works", supplier_address="Industrial Estate, Faisalabad, Pakistan",
+    )
 
     # Inquiry 1: quote generated, left in draft.
     if not session.execute(select(m.Quote).where(m.Quote.inquiry_id == inq_draft.id)).scalars().first():
@@ -241,17 +292,25 @@ def run(session: Session) -> None:
         session.flush()
 
     # Inquiry 4: accepted and walked all the way through, then invoiced by
-    # ops -- proves the complete 17-stage lifecycle end to end.
+    # ops -- proves the complete 17-stage lifecycle end to end, and also gets
+    # a real Invoice generated from its quote, so the quote-to-invoice
+    # workflow is visible immediately without manual clicking.
     quote_delivered = session.execute(select(m.Quote).where(m.Quote.inquiry_id == inq_delivered.id)).scalars().first()
     if quote_delivered is None:
         quote_delivered = generate_quote(session, inq_delivered.id, today=SEED_TODAY)
         send_quote(session, quote_delivered.id, today=SEED_TODAY)
         shipment = accept_quote(session, quote_delivered.id, "seed", today=SEED_TODAY)
+        set_routing(session, shipment, carrier="PIA Cargo", voyage_flight_number="PK-302")
         _walk_to(session, shipment, ShipmentStage.ARRIVAL, actor_by_stage)
         advance_stage(
             session, shipment, ShipmentStage.INVOICE_TO_CUSTOMER,
             actor="ops", note="Invoice sent to customer.", source=EventSource.MANUAL,
         )
+        session.flush()
+
+    if quote_delivered.invoice is None:
+        default_company = next(c for c in list_companies(session) if c.is_default)
+        create_invoice_from_quote(session, quote_delivered.id, company_id=default_company.id, today=SEED_TODAY)
         session.flush()
 
 

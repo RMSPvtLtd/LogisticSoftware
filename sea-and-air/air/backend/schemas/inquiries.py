@@ -18,6 +18,10 @@ class InquiryCreate(BaseModel):
     ready_date: date | None = None
     incoterm: str = Field(min_length=1, max_length=10)
     description: str | None = None
+    hs_code: str | None = Field(default=None, max_length=20)
+    pieces: int | None = Field(default=None, gt=0)
+    supplier_name: str | None = Field(default=None, max_length=200)
+    supplier_address: str | None = None
 
 
 class InquiryRead(BaseModel):
@@ -35,5 +39,9 @@ class InquiryRead(BaseModel):
     ready_date: date | None
     incoterm: str
     description: str | None
+    hs_code: str | None
+    pieces: int | None
+    supplier_name: str | None
+    supplier_address: str | None
     created_at: datetime
     updated_at: datetime

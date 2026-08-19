@@ -1,13 +1,13 @@
-"""Owns job number allocation. `allocate_job_number` is the only place that
-touches `JobNumberCounter`, so the format and the locking strategy live in
-one function.
+"""Owns job number allocation and shipment routing details. `allocate_job_number`
+is the only place that touches `JobNumberCounter`, so the format and the
+locking strategy live in one function.
 """
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from config import get_settings
-from models.shipment import JobNumberCounter
+from models.shipment import JobNumberCounter, Shipment
 
 
 def _lock_counter_row(session: Session, year: int) -> JobNumberCounter | None:
@@ -39,3 +39,14 @@ def allocate_job_number(session: Session, year: int) -> str:
 
     sequence = str(counter.last_value).zfill(settings.job_number_padding)
     return f"{settings.job_number_prefix}-{year}-{sequence}"
+
+
+def set_routing(
+    session: Session, shipment: Shipment, *, carrier: str | None, voyage_flight_number: str | None
+) -> Shipment:
+    """Set the carrier and voyage/flight number, independent of stage --
+    known once the job is booked, not before."""
+    shipment.carrier = carrier
+    shipment.voyage_flight_number = voyage_flight_number
+    session.flush()
+    return shipment

@@ -60,13 +60,15 @@ def recalculate_totals(quote: Quote) -> None:
     """The only place Quote.subtotal / markup_amount / total are computed.
     Uses each line item's final_total — which equals calculated_total unless
     a pricing user overrode it — as the authoritative line amount.
+    tax_amount/discount_amount are flat, ops-entered amounts (default zero,
+    untouched here) rather than derived, so they're simply folded into total.
     """
     settings = get_settings()
     subtotal = _money(sum((li.final_total for li in quote.line_items), Decimal("0")))
     markup_amount = _money(subtotal * settings.default_markup_percent / Decimal("100"))
     quote.subtotal = subtotal
     quote.markup_amount = markup_amount
-    quote.total = _money(subtotal + markup_amount)
+    quote.total = _money(subtotal + markup_amount + quote.tax_amount - quote.discount_amount)
 
 
 def generate_quote(session: Session, inquiry_id: int, *, today: date | None = None) -> Quote:
@@ -87,6 +89,8 @@ def generate_quote(session: Session, inquiry_id: int, *, today: date | None = No
         status=QuoteStatus.DRAFT,
         currency=priced.currency,
         valid_until=today + timedelta(days=settings.quote_validity_days),
+        tax_amount=Decimal("0"),
+        discount_amount=Decimal("0"),
     )
     for line in priced.line_items:
         quote.line_items.append(
@@ -152,6 +156,26 @@ def override_line_items(
         line_item.final_total = _money(override.final_total)
         line_item.is_manual_override = True
 
+    recalculate_totals(quote)
+    session.flush()
+    return quote
+
+
+def set_quote_adjustments(
+    session: Session, quote_id: int, *, tax_amount: Decimal, discount_amount: Decimal, today: date | None = None
+) -> Quote:
+    """Set the quote's flat tax/discount amounts. Same editability rule as
+    override_line_items -- blocked only once the shipment has been invoiced.
+    """
+    today = today or date.today()
+    quote = _get_quote(session, quote_id)
+    _apply_lazy_expiry(quote, today)
+
+    if quote.shipment is not None and quote.shipment.stage == ShipmentStage.INVOICE_TO_CUSTOMER:
+        raise InvalidQuoteState(f"Quote {quote.id} cannot be edited: its shipment has already been invoiced")
+
+    quote.tax_amount = _money(tax_amount)
+    quote.discount_amount = _money(discount_amount)
     recalculate_totals(quote)
     session.flush()
     return quote

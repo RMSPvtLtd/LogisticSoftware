@@ -13,9 +13,11 @@ from schemas.shipments import (
     PriorityUpdateRequest,
     ReferenceCreateRequest,
     RiskUpdateRequest,
+    RoutingUpdateRequest,
     ShipmentRead,
     StatusCorrectionRequest,
 )
+from services.shipments import set_routing
 from services.transitions import advance_stage, correct_stage, set_priority, set_risk
 
 router = APIRouter(prefix="/shipments", tags=["shipments"])
@@ -102,6 +104,17 @@ def update_priority(
 ) -> Shipment:
     shipment = _get_shipment(db, shipment_id)
     set_priority(db, shipment, priority=payload.priority, actor=actor)
+    return shipment
+
+
+@router.post("/{shipment_id}/routing", response_model=ShipmentRead)
+def update_routing(
+    shipment_id: int,
+    payload: RoutingUpdateRequest,
+    db: Session = Depends(get_db),
+) -> Shipment:
+    shipment = _get_shipment(db, shipment_id)
+    set_routing(db, shipment, carrier=payload.carrier, voyage_flight_number=payload.voyage_flight_number)
     return shipment
 
 

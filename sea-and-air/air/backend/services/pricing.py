@@ -57,7 +57,10 @@ def _volumetric_factor(mode: TransportMode, settings: Settings) -> Decimal:
     return getattr(settings, _VOLUMETRIC_FACTOR_BY_MODE[mode])
 
 
-def _chargeable_weight(inquiry: Inquiry, settings: Settings) -> Decimal:
+def compute_chargeable_weight(inquiry: Inquiry, settings: Settings) -> Decimal:
+    """The greater of actual and volumetric weight -- exported (not just an
+    internal helper) so document generation can print it without
+    re-deriving or persisting a redundant column."""
     volumetric_weight = Decimal(inquiry.volume_cbm) * _volumetric_factor(inquiry.mode, settings)
     return max(Decimal(inquiry.weight_kg), volumetric_weight)
 
@@ -189,7 +192,7 @@ def price_inquiry(session: Session, inquiry: Inquiry, *, today: date | None = No
     today = today or date.today()
 
     rate_card = _select_rate_card(session, inquiry, today)
-    chargeable_weight = _chargeable_weight(inquiry, settings)
+    chargeable_weight = compute_chargeable_weight(inquiry, settings)
     volume_cbm = Decimal(inquiry.volume_cbm)
 
     brk = _select_break(rate_card, chargeable_weight, volume_cbm)

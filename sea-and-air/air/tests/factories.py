@@ -112,6 +112,19 @@ def simple_rate_card(session: Session, *, rate: Decimal = Decimal("5.00"), **rc_
     return rate_card
 
 
+def make_company(session: Session, **overrides) -> m.Company:
+    defaults = dict(
+        name="Test Freight Co",
+        address="1 Test Street, Test City",
+        is_default=True,
+    )
+    defaults.update(overrides)
+    company = m.Company(**defaults)
+    session.add(company)
+    session.flush()
+    return company
+
+
 def make_area(session: Session, stage: ShipmentStage, **overrides) -> m.Area:
     existing = session.execute(select(m.Area).where(m.Area.stage == stage)).scalar_one_or_none()
     if existing is not None:

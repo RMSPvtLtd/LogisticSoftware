@@ -27,6 +27,12 @@ class Quote(TimestampMixin, Base):
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
     markup_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
+    # Optional, default zero -- no real Raaziq document seen so far shows a
+    # tax or discount line (Pakistan exports are zero-rated; the UK invoice
+    # shows no VAT line either), but the capability is here for when one is
+    # needed. Flat amounts, not rates -- ops enters the actual figure.
+    tax_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
+    discount_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
     valid_until: Mapped[date] = mapped_column(Date, nullable=False)
 
@@ -35,6 +41,7 @@ class Quote(TimestampMixin, Base):
         back_populates="quote", cascade="all, delete-orphan", order_by="QuoteLineItem.id"
     )
     shipment: Mapped["Shipment | None"] = relationship(back_populates="quote", uselist=False)  # noqa: F821
+    invoice: Mapped["Invoice | None"] = relationship(back_populates="quote", uselist=False)  # noqa: F821
 
     @property
     def shipment_stage(self) -> "ShipmentStage | None":  # noqa: F821
@@ -44,6 +51,13 @@ class Quote(TimestampMixin, Base):
         exposed on `QuoteRead` so the frontend doesn't need a second request
         to know whether editing is still allowed."""
         return self.shipment.stage if self.shipment else None
+
+    @property
+    def invoice_id(self) -> "int | None":
+        """The id of the invoice generated from this quote, if any -- lets
+        the frontend show "Invoice: INV-XXXX" / disable "Create Invoice"
+        without a second request."""
+        return self.invoice.id if self.invoice else None
 
 
 class QuoteLineItem(Base):
