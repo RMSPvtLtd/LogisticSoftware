@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { Package } from "@phosphor-icons/react"
+import { toast } from "sonner"
+import { Package, Trash } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { StageBadge } from "@/components/shared/StageBadge"
 import { RiskBadge } from "@/components/shared/RiskBadge"
@@ -12,7 +13,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { useAsync } from "@/hooks/useAsync"
 import { useStages } from "@/hooks/useStages"
-import { customersApi, inquiriesApi, shipmentsApi } from "@/lib/api/client"
+import { ApiError, customersApi, inquiriesApi, shipmentsApi } from "@/lib/api/client"
 import { formatDateTime } from "@/lib/format"
 import type { ShipmentFilters, ShipmentStage } from "@/lib/api/types"
 
@@ -23,6 +24,7 @@ export function ShipmentListPage() {
   const { stages } = useStages()
   const [tab, setTab] = useState<ListTab>("active")
   const [filters, setFilters] = useState<ShipmentFilters>({})
+  const [deletingId, setDeletingId] = useState<number | null>(null)
 
   const shipments = useAsync(() => shipmentsApi.list(filters), [filters.stage, filters.at_risk, filters.priority])
   const customers = useAsync(() => customersApi.list(), [])
@@ -50,6 +52,20 @@ export function ShipmentListPage() {
 
   const hasActiveFilters =
     filters.stage !== undefined || filters.at_risk !== undefined || filters.priority !== undefined
+
+  async function handleDelete(id: number, label: string) {
+    if (!confirm(`Delete ${label}? This permanently erases it and cannot be undone.`)) return
+    setDeletingId(id)
+    try {
+      await shipmentsApi.remove(id)
+      toast.success(`${label} deleted`)
+      shipments.reload()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not delete shipment.")
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   return (
     <div>
@@ -168,6 +184,7 @@ export function ShipmentListPage() {
                 <TableHead>Priority</TableHead>
                 <TableHead>Last Updated</TableHead>
                 <TableHead>Risk</TableHead>
+                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -203,6 +220,21 @@ export function ShipmentListPage() {
                       {formatDateTime(shipment.updated_at)}
                     </TableCell>
                     <TableCell>{shipment.is_at_risk && <RiskBadge />}</TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Delete shipment"
+                        disabled={deletingId === shipment.id}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDelete(shipment.id, shipment.job_number ?? `Inquiry #${shipment.inquiry_id}`)
+                        }}
+                        className="text-destructive hover:text-destructive"
+                      >
+                        <Trash size={16} />
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 )
               })}
