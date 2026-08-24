@@ -1,7 +1,7 @@
-import { useState } from "react"
-import { useNavigate, useParams } from "react-router-dom"
+import { useMemo, useState } from "react"
+import { Link, useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
-import { ArrowLeft, CheckCircle, PauseCircle, PencilSimple, Prohibit, Trash, UsersThree, Warning } from "@phosphor-icons/react"
+import { ArrowLeft, CheckCircle, PauseCircle, PencilSimple, Prohibit, Receipt, Trash, UsersThree, Warning } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { StageBadge } from "@/components/shared/StageBadge"
 import { RiskBadge } from "@/components/shared/RiskBadge"
@@ -28,7 +28,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { useAsync } from "@/hooks/useAsync"
 import { useStages } from "@/hooks/useStages"
-import { areasApi, customersApi, inquiriesApi, shipmentsApi } from "@/lib/api/client"
+import { areasApi, companiesApi, customersApi, inquiriesApi, invoicesApi, quotesApi, shipmentsApi } from "@/lib/api/client"
 import { ApiError } from "@/lib/api/client"
 import { formatDate } from "@/lib/format"
 import type { Priority, ReferenceType, ShipmentStage } from "@/lib/api/types"
@@ -111,7 +111,7 @@ export function ShipmentDetailPage() {
             </Card>
           ) : (
             <>
-              <NextStageCard shipmentId={s.id} nextStage={nextStage} onDone={shipment.reload} />
+              <NextStageCard shipmentId={s.id} quoteId={s.quote_id} nextStage={nextStage} onDone={shipment.reload} />
               <CorrectionCard shipmentId={s.id} currentStage={s.stage} onDone={shipment.reload} />
             </>
           )}
@@ -161,17 +161,17 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 // clean single-purpose action instead.
 function NextStageCard({
   shipmentId,
+  quoteId,
   nextStage,
   onDone,
 }: {
   shipmentId: number
+  quoteId: number | null
   nextStage: { stage: ShipmentStage; label: string } | null
   onDone: () => void
 }) {
   const areas = useAsync(() => areasApi.list(), [])
   const areaName = areas.data?.find((a) => a.stage === nextStage?.stage)?.name
-  const [note, setNote] = useState("")
-  const [submitting, setSubmitting] = useState(false)
 
   if (!nextStage) {
     return (
@@ -185,37 +185,7 @@ function NextStageCard({
   }
 
   if (nextStage.stage === "invoice_to_customer") {
-    async function handleInvoice() {
-      setSubmitting(true)
-      try {
-        await shipmentsApi.invoice(shipmentId, note.trim() || undefined)
-        toast.success("Marked as invoiced")
-        onDone()
-      } catch (err) {
-        toast.error(err instanceof ApiError ? err.message : "Could not mark this shipment invoiced.")
-      } finally {
-        setSubmitting(false)
-      }
-    }
-
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Next stage</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Cargo has arrived. <span className="font-medium text-foreground">Invoice to Customer</span> is the
-            final step — ops marks it directly since it isn't tied to a physical location.
-          </p>
-          <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" rows={2} />
-          <Button onClick={handleInvoice} disabled={submitting} className="w-full gap-1.5">
-            <CheckCircle size={16} weight="fill" />
-            {submitting ? "Marking invoiced…" : "Mark Invoiced"}
-          </Button>
-        </CardContent>
-      </Card>
-    )
+    return <InvoiceStageCard shipmentId={shipmentId} quoteId={quoteId} onDone={onDone} />
   }
 
   return (
@@ -237,6 +207,120 @@ function NextStageCard({
             to mark it done.
           </span>
         </p>
+      </CardContent>
+    </Card>
+  )
+}
+
+// Cargo has arrived; this is the one place ops both generates the invoice
+// (auto-filled server-side from the accepted quote's snapshot -- customer,
+// pricing, route, references -- nothing re-entered) and marks the shipment
+// invoiced, as a single action instead of two disconnected steps across two
+// pages. If an invoice already exists for this quote (e.g. created earlier
+// from the quote page itself), skips straight to just marking it invoiced.
+function InvoiceStageCard({
+  shipmentId,
+  quoteId,
+  onDone,
+}: {
+  shipmentId: number
+  quoteId: number | null
+  onDone: () => void
+}) {
+  const quote = useAsync(() => (quoteId ? quotesApi.get(quoteId) : Promise.resolve(null)), [quoteId])
+  const companies = useAsync(() => companiesApi.list(), [])
+  const [companyId, setCompanyId] = useState<string>("")
+  const [note, setNote] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+
+  const defaultCompanyId = useMemo(() => {
+    const list = companies.data ?? []
+    return String((list.find((c) => c.is_default) ?? list[0])?.id ?? "")
+  }, [companies.data])
+  const selectedCompanyId = companyId || defaultCompanyId
+
+  async function handleMarkInvoiced() {
+    setSubmitting(true)
+    try {
+      await shipmentsApi.invoice(shipmentId, note.trim() || undefined)
+      toast.success("Marked as invoiced")
+      onDone()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not mark this shipment invoiced.")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleGenerate() {
+    if (!quoteId || !selectedCompanyId) return
+    setSubmitting(true)
+    try {
+      await invoicesApi.createFromQuote(quoteId, Number(selectedCompanyId))
+      await shipmentsApi.invoice(shipmentId, note.trim() || undefined)
+      toast.success("Invoice generated and marked as invoiced")
+      onDone()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not generate the invoice.")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (quote.loading) return <Card><CardContent className="py-4 text-sm text-muted-foreground">Loading…</CardContent></Card>
+
+  const existingInvoiceId = quote.data?.invoice_id ?? null
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Next stage</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {existingInvoiceId ? (
+          <>
+            <p className="flex items-center gap-2 text-sm text-status-success">
+              <Receipt size={16} weight="fill" />
+              This quote already has an invoice.{" "}
+              <Link to={`/invoices/${existingInvoiceId}`} className="underline">
+                View it
+              </Link>
+              .
+            </p>
+            <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" rows={2} />
+            <Button onClick={handleMarkInvoiced} disabled={submitting} className="w-full gap-1.5">
+              <CheckCircle size={16} weight="fill" />
+              {submitting ? "Marking invoiced…" : "Mark Invoiced"}
+            </Button>
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-muted-foreground">
+              Cargo has arrived. Generate the invoice below — customer, pricing, and route are pulled straight from
+              the accepted quote. The only thing to pick is which company it's issued from.
+            </p>
+            <div className="space-y-1.5">
+              <Label>Bill from</Label>
+              <Select value={selectedCompanyId} onValueChange={setCompanyId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={companies.loading ? "Loading…" : "Select a company"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {(companies.data ?? []).map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" rows={2} />
+            <Button onClick={handleGenerate} disabled={submitting || !quoteId || !selectedCompanyId} className="w-full gap-1.5">
+              <Receipt size={16} />
+              {submitting ? "Generating…" : "Generate Invoice"}
+            </Button>
+          </>
+        )}
       </CardContent>
     </Card>
   )
