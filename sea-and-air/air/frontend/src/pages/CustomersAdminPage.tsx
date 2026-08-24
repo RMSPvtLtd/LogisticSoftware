@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import {
   Dialog,
@@ -166,9 +167,8 @@ function GrantAccessDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="customer-password">{resetting ? "New password" : "Temporary password"}</Label>
-            <Input
+            <PasswordInput
               id="customer-password"
-              type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="At least 6 characters"

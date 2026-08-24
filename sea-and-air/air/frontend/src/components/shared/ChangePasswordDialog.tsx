@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import {
   Dialog,
@@ -67,9 +67,8 @@ export function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; on
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="current-password">Current password</Label>
-            <Input
+            <PasswordInput
               id="current-password"
-              type="password"
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
               autoComplete="current-password"
@@ -78,9 +77,8 @@ export function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; on
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="new-password">New password</Label>
-            <Input
+            <PasswordInput
               id="new-password"
-              type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               autoComplete="new-password"
@@ -89,9 +87,8 @@ export function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; on
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="confirm-password">Confirm new password</Label>
-            <Input
+            <PasswordInput
               id="confirm-password"
-              type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               autoComplete="new-password"
