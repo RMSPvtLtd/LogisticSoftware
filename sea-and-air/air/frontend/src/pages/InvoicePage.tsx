@@ -20,7 +20,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { useAsync } from "@/hooks/useAsync"
-import { ApiError, companiesApi, invoicesApi, openAuthedFile } from "@/lib/api/client"
+import { ApiError, companiesApi, downloadAuthedFile, invoicesApi } from "@/lib/api/client"
 import { formatDate, formatMoney } from "@/lib/format"
 import type { InvoiceStatus } from "@/lib/api/types"
 
@@ -80,7 +80,11 @@ export function InvoicePage() {
             <Button
               variant="outline"
               className="gap-1.5"
-              onClick={() => openAuthedFile(invoicesApi.pdfUrl(inv.id)).catch(() => toast.error("Could not open PDF."))}
+              onClick={() =>
+                downloadAuthedFile(invoicesApi.pdfUrl(inv.id), `${inv.invoice_number}.pdf`).catch(() =>
+                  toast.error("Could not download PDF."),
+                )
+              }
             >
               <DownloadSimple size={16} />
               Download PDF

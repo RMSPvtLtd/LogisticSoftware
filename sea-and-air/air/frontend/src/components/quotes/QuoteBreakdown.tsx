@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/dialog"
 import { LoadingState, ErrorState } from "@/components/shared/States"
 import { useAsync } from "@/hooks/useAsync"
-import { companiesApi, inquiriesApi, invoicesApi, openAuthedFile, quotesApi, ApiError } from "@/lib/api/client"
+import { companiesApi, downloadAuthedFile, inquiriesApi, invoicesApi, openAuthedFile, quotesApi, ApiError } from "@/lib/api/client"
 import { formatDate, formatMoney } from "@/lib/format"
 import type { Quote, QuoteStatus, Shipment } from "@/lib/api/types"
 
@@ -531,7 +531,11 @@ function ExistingInvoiceCard({ invoiceId }: { invoiceId: number }) {
         </Link>
         <button
           type="button"
-          onClick={() => openAuthedFile(invoicesApi.pdfUrl(invoiceId)).catch(() => toast.error("Could not open PDF."))}
+          onClick={() =>
+            downloadAuthedFile(invoicesApi.pdfUrl(invoiceId), `${invoice.data!.invoice_number}.pdf`).catch(() =>
+              toast.error("Could not download PDF."),
+            )
+          }
           className="flex items-center gap-1 text-sm text-muted-foreground underline"
         >
           <DownloadSimple size={14} />

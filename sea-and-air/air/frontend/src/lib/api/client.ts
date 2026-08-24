@@ -118,18 +118,49 @@ function opsRequest<T>(path: string, init?: RequestInit): Promise<T> {
 
 // Fetches a PDF/document with the ops bearer token attached (a plain <a
 // href> can't carry a custom header) and opens it in a new tab as a blob
-// URL. Used for quote/invoice PDF previews and shipment document downloads,
-// all of which now require ops auth.
+// URL. Used for quote/invoice PDF previews, all of which now require ops
+// auth.
+//
+// The blank tab is opened *before* the (async) fetch, not after -- most
+// browsers only allow window.open() as a direct result of a user gesture;
+// calling it after an `await` is a background call as far as the popup
+// blocker is concerned and gets silently dropped (no error, tab just never
+// appears). Opening a blank tab synchronously in the click handler and
+// pointing it at the blob once it's ready sidesteps that entirely.
 export async function openAuthedFile(url: string): Promise<void> {
+  const tab = window.open("", "_blank")
+  try {
+    const res = await fetch(url, { headers: opsAuthHeader() })
+    if (!res.ok) {
+      tab?.close()
+      throw new ApiError(res.status, res.statusText)
+    }
+    const blob = await res.blob()
+    const blobUrl = URL.createObjectURL(blob)
+    if (tab) tab.location.href = blobUrl
+    else window.open(blobUrl, "_blank") // popup was blocked even for the blank tab -- best effort
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
+  } catch (err) {
+    tab?.close()
+    throw err
+  }
+}
+
+// Same auth-header fetch, but triggers an actual file save instead of
+// opening a viewer tab -- for buttons explicitly labeled "Download".
+export async function downloadAuthedFile(url: string, filename: string): Promise<void> {
   const res = await fetch(url, { headers: opsAuthHeader() })
   if (!res.ok) {
     throw new ApiError(res.status, res.statusText)
   }
   const blob = await res.blob()
   const blobUrl = URL.createObjectURL(blob)
-  window.open(blobUrl, "_blank")
-  // Revoked after a delay rather than immediately -- the new tab needs time
-  // to actually load the blob URL before it's freed.
+  const a = document.createElement("a")
+  a.href = blobUrl
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
   setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
 }
 

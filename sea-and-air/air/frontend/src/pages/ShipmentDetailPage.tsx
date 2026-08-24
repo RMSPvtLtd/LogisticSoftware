@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 import { ArrowLeft, CheckCircle, PauseCircle, PencilSimple, Prohibit, Receipt, Trash, UsersThree, Warning } from "@phosphor-icons/react"
@@ -28,7 +28,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { useAsync } from "@/hooks/useAsync"
 import { useStages } from "@/hooks/useStages"
-import { areasApi, companiesApi, customersApi, inquiriesApi, invoicesApi, quotesApi, shipmentsApi } from "@/lib/api/client"
+import { areasApi, customersApi, inquiriesApi, quotesApi, shipmentsApi } from "@/lib/api/client"
 import { ApiError } from "@/lib/api/client"
 import { formatDate } from "@/lib/format"
 import type { Priority, ReferenceType, ShipmentStage } from "@/lib/api/types"
@@ -214,10 +214,12 @@ function NextStageCard({
 
 // Cargo has arrived; this is the one place ops both generates the invoice
 // (auto-filled server-side from the accepted quote's snapshot -- customer,
-// pricing, route, references -- nothing re-entered) and marks the shipment
-// invoiced, as a single action instead of two disconnected steps across two
-// pages. If an invoice already exists for this quote (e.g. created earlier
-// from the quote page itself), skips straight to just marking it invoiced.
+// pricing, route, references -- nothing re-entered), reviewed on a dedicated
+// preview page before anything is created, and marks the shipment invoiced
+// as part of that same confirmation instead of two disconnected steps
+// across two pages. If an invoice already exists for this quote (e.g.
+// created earlier from the quote page itself), skips straight to just
+// marking the shipment invoiced.
 function InvoiceStageCard({
   shipmentId,
   quoteId,
@@ -228,16 +230,8 @@ function InvoiceStageCard({
   onDone: () => void
 }) {
   const quote = useAsync(() => (quoteId ? quotesApi.get(quoteId) : Promise.resolve(null)), [quoteId])
-  const companies = useAsync(() => companiesApi.list(), [])
-  const [companyId, setCompanyId] = useState<string>("")
   const [note, setNote] = useState("")
   const [submitting, setSubmitting] = useState(false)
-
-  const defaultCompanyId = useMemo(() => {
-    const list = companies.data ?? []
-    return String((list.find((c) => c.is_default) ?? list[0])?.id ?? "")
-  }, [companies.data])
-  const selectedCompanyId = companyId || defaultCompanyId
 
   async function handleMarkInvoiced() {
     setSubmitting(true)
@@ -247,21 +241,6 @@ function InvoiceStageCard({
       onDone()
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not mark this shipment invoiced.")
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  async function handleGenerate() {
-    if (!quoteId || !selectedCompanyId) return
-    setSubmitting(true)
-    try {
-      await invoicesApi.createFromQuote(quoteId, Number(selectedCompanyId))
-      await shipmentsApi.invoice(shipmentId, note.trim() || undefined)
-      toast.success("Invoice generated and marked as invoiced")
-      onDone()
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Could not generate the invoice.")
     } finally {
       setSubmitting(false)
     }
@@ -296,28 +275,14 @@ function InvoiceStageCard({
         ) : (
           <>
             <p className="text-sm text-muted-foreground">
-              Cargo has arrived. Generate the invoice below — customer, pricing, and route are pulled straight from
-              the accepted quote. The only thing to pick is which company it's issued from.
+              Cargo has arrived. Review and generate the invoice — customer, pricing, and route are pulled
+              straight from the accepted quote.
             </p>
-            <div className="space-y-1.5">
-              <Label>Bill from</Label>
-              <Select value={selectedCompanyId} onValueChange={setCompanyId}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={companies.loading ? "Loading…" : "Select a company"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {(companies.data ?? []).map((c) => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" rows={2} />
-            <Button onClick={handleGenerate} disabled={submitting || !quoteId || !selectedCompanyId} className="w-full gap-1.5">
-              <Receipt size={16} />
-              {submitting ? "Generating…" : "Generate Invoice"}
+            <Button asChild className="w-full gap-1.5">
+              <Link to={`/shipments/${shipmentId}/generate-invoice`}>
+                <Receipt size={16} />
+                Review &amp; Generate Invoice
+              </Link>
             </Button>
           </>
         )}

@@ -13,6 +13,7 @@ import { ProtectedCustomerRoute } from "@/components/shared/ProtectedCustomerRou
 import { OpsLoginPage } from "@/pages/OpsLoginPage"
 import { ShipmentListPage } from "@/pages/ShipmentListPage"
 import { ShipmentDetailPage } from "@/pages/ShipmentDetailPage"
+import { InvoicePreviewPage } from "@/pages/InvoicePreviewPage"
 import { QuoteFlowPage } from "@/pages/QuoteFlowPage"
 import { InvoiceListPage } from "@/pages/InvoiceListPage"
 import { InvoicePage } from "@/pages/InvoicePage"
@@ -59,6 +60,7 @@ function App() {
           >
             <Route path="/shipments" element={<ShipmentListPage />} />
             <Route path="/shipments/:id" element={<ShipmentDetailPage />} />
+            <Route path="/shipments/:id/generate-invoice" element={<InvoicePreviewPage />} />
             <Route path="/quotes/new" element={<QuoteFlowPage />} />
             <Route path="/quotes/:id" element={<QuoteFlowPage />} />
             <Route path="/invoices" element={<InvoiceListPage />} />

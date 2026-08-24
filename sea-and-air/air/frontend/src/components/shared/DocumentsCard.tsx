@@ -8,7 +8,7 @@ import { Separator } from "@/components/ui/separator"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { StageBadge } from "@/components/shared/StageBadge"
 import { useAsync } from "@/hooks/useAsync"
-import { documentsApi, openAuthedFile, ApiError } from "@/lib/api/client"
+import { documentsApi, downloadAuthedFile, ApiError } from "@/lib/api/client"
 import { formatDateTime } from "@/lib/format"
 import type { DocumentType } from "@/lib/api/types"
 
@@ -91,7 +91,9 @@ export function DocumentsCard({ shipmentId }: { shipmentId: number }) {
                 <button
                   type="button"
                   onClick={() =>
-                    openAuthedFile(documentsApi.downloadUrl(doc.id)).catch(() => toast.error("Could not open document."))
+                    downloadAuthedFile(documentsApi.downloadUrl(doc.id), doc.filename).catch(() =>
+                      toast.error("Could not download document."),
+                    )
                   }
                   className="shrink-0 rounded p-1.5 text-muted-foreground outline-none hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                   aria-label={`Download ${doc.filename}`}
