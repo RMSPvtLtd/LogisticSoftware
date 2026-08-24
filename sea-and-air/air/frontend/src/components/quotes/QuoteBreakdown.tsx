@@ -1,19 +1,44 @@
 import { useMemo, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { toast } from "sonner"
-import { CheckCircle, DownloadSimple, FileText, PaperPlaneTilt, PencilSimpleLine, Receipt } from "@phosphor-icons/react"
+import {
+  CheckCircle,
+  DownloadSimple,
+  FileText,
+  PaperPlaneTilt,
+  PencilSimpleLine,
+  Receipt,
+  XCircle,
+} from "@phosphor-icons/react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { LoadingState, ErrorState } from "@/components/shared/States"
 import { useAsync } from "@/hooks/useAsync"
-import { companiesApi, inquiriesApi, invoicesApi, quotesApi, ApiError } from "@/lib/api/client"
+import { companiesApi, inquiriesApi, invoicesApi, openAuthedFile, quotesApi, ApiError } from "@/lib/api/client"
 import { formatDate, formatMoney } from "@/lib/format"
-import type { Quote, Shipment } from "@/lib/api/types"
+import type { Quote, QuoteStatus, Shipment } from "@/lib/api/types"
+
+const STATUS_LABEL: Record<QuoteStatus, string> = {
+  draft: "Draft",
+  sent: "Sent",
+  accepted: "Accepted",
+  expired: "Expired",
+  rejected: "Rejected",
+}
 
 const KIND_LABEL: Record<string, string> = {
   freight: "Freight",
@@ -39,39 +64,74 @@ export function QuoteBreakdown({ quoteId }: { quoteId: number }) {
     return <AcceptedPanel shipment={acceptedShipment} />
   }
 
+  const q = quote.data
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-3">
-        {inquiry.data && (
-          <p className="text-sm text-muted-foreground">
-            {inquiry.data.origin} → {inquiry.data.destination} · {inquiry.data.mode.toUpperCase()} ·{" "}
-            {inquiry.data.cargo_type} · Incoterm {inquiry.data.incoterm}
-          </p>
-        )}
-        <a
-          href={quotesApi.pdfUrl(quote.data.id)}
-          target="_blank"
-          rel="noreferrer"
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-foreground">
+              Q-{q.root_quote_id ?? q.id} Rev {q.revision_number}
+            </span>
+            {!q.is_current && <Badge variant="secondary">Superseded</Badge>}
+          </div>
+          {inquiry.data && (
+            <p className="text-sm text-muted-foreground">
+              {inquiry.data.origin} → {inquiry.data.destination} · {inquiry.data.mode.toUpperCase()} ·{" "}
+              {inquiry.data.cargo_type} · Incoterm {inquiry.data.incoterm}
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => openAuthedFile(quotesApi.pdfUrl(q.id)).catch(() => toast.error("Could not open PDF."))}
           className="flex shrink-0 items-center gap-1.5 text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
         >
           <FileText size={16} />
           Preview PDF
-        </a>
+        </button>
       </div>
+
+      <RevisionHistory rootQuoteId={q.root_quote_id ?? q.id} currentId={q.id} />
 
       <LineItemsCard quote={quote.data} onSaved={quote.reload} />
 
       <SummaryCard quote={quote.data} onSaved={quote.reload} />
 
-      <ActionsBar quote={quote.data} onSent={quote.reload} onAccepted={setAcceptedShipment} />
+      <ActionsBar quote={quote.data} onSent={quote.reload} onAccepted={setAcceptedShipment} onRejected={quote.reload} />
 
       {quote.data.status === "accepted" && <InvoiceSection quote={quote.data} onCreated={quote.reload} />}
     </div>
   )
 }
 
+function RevisionHistory({ rootQuoteId, currentId }: { rootQuoteId: number; currentId: number }) {
+  const revisions = useAsync(() => quotesApi.revisions(rootQuoteId), [rootQuoteId])
+  if (revisions.loading || !revisions.data || revisions.data.length < 2) return null
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/40 px-4 py-2.5 text-sm">
+      <span className="text-muted-foreground">Revisions:</span>
+      {revisions.data.map((rev) => (
+        <Link
+          key={rev.id}
+          to={`/quotes/${rev.id}`}
+          className={
+            rev.id === currentId
+              ? "rounded bg-secondary px-2 py-0.5 font-medium text-secondary-foreground"
+              : "rounded px-2 py-0.5 text-muted-foreground underline outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          }
+        >
+          Rev {rev.revision_number}
+        </Link>
+      ))}
+    </div>
+  )
+}
+
 function LineItemsCard({ quote, onSaved }: { quote: Quote; onSaved: () => void }) {
-  const editable = quote.shipment_stage !== "invoice_to_customer"
+  const editable = quote.shipment_stage !== "invoice_to_customer" && quote.is_current
   const [edits, setEdits] = useState<Record<number, string>>({})
   const [saving, setSaving] = useState(false)
 
@@ -167,7 +227,7 @@ function LineItemsCard({ quote, onSaved }: { quote: Quote; onSaved: () => void }
 }
 
 function SummaryCard({ quote, onSaved }: { quote: Quote; onSaved: () => void }) {
-  const editable = quote.shipment_stage !== "invoice_to_customer"
+  const editable = quote.shipment_stage !== "invoice_to_customer" && quote.is_current
   const hasAdjustments = Number(quote.tax_amount) > 0 || Number(quote.discount_amount) > 0
   const [editing, setEditing] = useState(false)
   const [taxAmount, setTaxAmount] = useState(quote.tax_amount)
@@ -259,24 +319,63 @@ function ActionsBar({
   quote,
   onSent,
   onAccepted,
+  onRejected,
 }: {
   quote: Quote
   onSent: () => void
   onAccepted: (shipment: Shipment) => void
+  onRejected: () => void
 }) {
   const [sending, setSending] = useState(false)
   const [accepting, setAccepting] = useState(false)
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [revising, setRevising] = useState(false)
+  const navigate = useNavigate()
 
-  const statusLabel = useMemo(
-    () => ({ draft: "Draft", sent: "Sent", accepted: "Accepted", expired: "Expired" })[quote.status],
-    [quote.status],
-  )
+  const statusLabel = useMemo(() => STATUS_LABEL[quote.status], [quote.status])
+
+  async function handleGenerateRevision() {
+    setRevising(true)
+    try {
+      const revision = await quotesApi.generate(quote.inquiry_id)
+      toast.success(`Q-${revision.root_quote_id ?? revision.id} Rev ${revision.revision_number} created`)
+      navigate(`/quotes/${revision.id}`)
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not generate a new revision.")
+    } finally {
+      setRevising(false)
+    }
+  }
+
+  if (!quote.is_current) {
+    return (
+      <div className="rounded-xl border border-border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
+        This revision has been superseded by a newer quote and can no longer be sent, accepted, or rejected.
+      </div>
+    )
+  }
 
   if (quote.status === "expired") {
     return (
-      <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-        This quote expired on {formatDate(quote.valid_until)} and can no longer be sent or accepted. Generate a
-        new quote for this inquiry instead.
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+        <span>This quote expired on {formatDate(quote.valid_until)} and can no longer be sent or accepted.</span>
+        <Button size="sm" variant="outline" onClick={handleGenerateRevision} disabled={revising}>
+          {revising ? "Generating…" : "Generate New Revision"}
+        </Button>
+      </div>
+    )
+  }
+
+  if (quote.status === "rejected") {
+    return (
+      <div className="space-y-2 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+        <div>
+          <p className="font-medium">This quote was rejected{quote.rejected_by ? ` by ${quote.rejected_by}` : ""}.</p>
+          {quote.rejected_reason && <p>{quote.rejected_reason}</p>}
+        </div>
+        <Button size="sm" variant="outline" onClick={handleGenerateRevision} disabled={revising}>
+          {revising ? "Generating…" : "Generate New Revision"}
+        </Button>
       </div>
     )
   }
@@ -331,12 +430,81 @@ function ActionsBar({
             {sending ? "Sending…" : "Send Quote"}
           </Button>
         )}
+        <Button variant="outline" onClick={() => setRejectOpen(true)} className="gap-1.5 text-destructive hover:text-destructive">
+          <XCircle size={16} />
+          Reject
+        </Button>
         <Button onClick={handleAccept} disabled={accepting} className="gap-1.5">
           <CheckCircle size={16} />
           {accepting ? "Opening job…" : "Open Job"}
         </Button>
       </div>
+      <RejectQuoteDialog
+        quoteId={quote.id}
+        open={rejectOpen}
+        onOpenChange={setRejectOpen}
+        onRejected={onRejected}
+      />
     </div>
+  )
+}
+
+function RejectQuoteDialog({
+  quoteId,
+  open,
+  onOpenChange,
+  onRejected,
+}: {
+  quoteId: number
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onRejected: () => void
+}) {
+  const [reason, setReason] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleReject() {
+    setSubmitting(true)
+    try {
+      await quotesApi.reject(quoteId, reason)
+      toast.success("Quote rejected")
+      setReason("")
+      onOpenChange(false)
+      onRejected()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not reject quote.")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Reject quote</DialogTitle>
+          <DialogDescription>Record why this quote is being declined. This cannot be undone.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <Label htmlFor="reject-reason">Reason</Label>
+          <Textarea
+            id="reject-reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. Customer found a lower rate elsewhere"
+            autoFocus
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button variant="destructive" onClick={handleReject} disabled={submitting || !reason.trim()}>
+            {submitting ? "Rejecting…" : "Reject quote"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -361,15 +529,14 @@ function ExistingInvoiceCard({ invoiceId }: { invoiceId: number }) {
         <Link to={`/invoices/${invoiceId}`} className="text-sm text-muted-foreground underline">
           View invoice
         </Link>
-        <a
-          href={invoicesApi.pdfUrl(invoiceId)}
-          target="_blank"
-          rel="noreferrer"
+        <button
+          type="button"
+          onClick={() => openAuthedFile(invoicesApi.pdfUrl(invoiceId)).catch(() => toast.error("Could not open PDF."))}
           className="flex items-center gap-1 text-sm text-muted-foreground underline"
         >
           <DownloadSimple size={14} />
           PDF
-        </a>
+        </button>
       </div>
     </div>
   )

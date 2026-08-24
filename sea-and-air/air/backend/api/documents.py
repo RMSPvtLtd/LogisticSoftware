@@ -1,19 +1,21 @@
-from fastapi import APIRouter, Depends, File, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from db import get_db
-from utils.dependencies import current_actor
 from utils.errors import NotFound
+from models.enums import DocumentType
+from models.ops_user import OpsUser
 from models.shipment import Shipment
 from schemas.documents import ShipmentDocumentRead
+from utils.security import get_current_ops_user
 from services.documents import get_document, list_documents
 from services.documents import upload_document as upload_document_service
 
-router = APIRouter(prefix="/shipments", tags=["documents"])
+router = APIRouter(prefix="/shipments", tags=["documents"], dependencies=[Depends(get_current_ops_user)])
 
 # Flat, not nested under /shipments -- downloading a document by id doesn't
 # need the shipment_id in the path.
-doc_router = APIRouter(prefix="/documents", tags=["documents"])
+doc_router = APIRouter(prefix="/documents", tags=["documents"], dependencies=[Depends(get_current_ops_user)])
 
 
 def _get_shipment(db: Session, shipment_id: int) -> Shipment:
@@ -27,13 +29,15 @@ def _get_shipment(db: Session, shipment_id: int) -> Shipment:
 async def upload_document(
     shipment_id: int,
     file: UploadFile = File(...),
-    actor: str = Depends(current_actor),
+    document_type: DocumentType = Form(default=DocumentType.OTHER),
+    ops_user: OpsUser = Depends(get_current_ops_user),
     db: Session = Depends(get_db),
 ):
     shipment = _get_shipment(db, shipment_id)
     data = await file.read()
     return upload_document_service(
-        db, shipment, filename=file.filename, content_type=file.content_type, data=data, actor=actor
+        db, shipment, filename=file.filename, content_type=file.content_type, data=data,
+        actor=ops_user.name, document_type=document_type,
     )
 
 

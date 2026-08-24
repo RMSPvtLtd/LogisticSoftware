@@ -1,7 +1,7 @@
-"""Admin/ops management of Areas and Workers. Unauthenticated like the rest
-of the ops API (see utils.dependencies.current_actor) — the ops side has no
-login in this MVP. Only the worker portal (api.worker_portal) requires
-a bearer token.
+"""Admin/ops management of Areas and Workers. Requires an authenticated
+OpsUser (get_current_ops_user), same as every other ops-facing router --
+this is where new worker login credentials get created, so it's one of the
+more sensitive ops surfaces, not less.
 """
 
 from fastapi import APIRouter, Depends
@@ -12,9 +12,10 @@ from db import get_db
 from utils.errors import NotFound
 from models.worker import Area, Worker
 from schemas.workers import AreaRead, WorkerCreate, WorkerRead, WorkerUpdate
+from utils.security import get_current_ops_user
 from services.workers import create_worker
 
-router = APIRouter(tags=["workers"])
+router = APIRouter(tags=["workers"], dependencies=[Depends(get_current_ops_user)])
 
 
 @router.get("/areas", response_model=list[AreaRead])

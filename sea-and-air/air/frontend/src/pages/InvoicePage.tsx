@@ -1,14 +1,28 @@
-import { useNavigate, useParams } from "react-router-dom"
-import { ArrowLeft, DownloadSimple } from "@phosphor-icons/react"
+import { useState } from "react"
+import { Link, useNavigate, useParams } from "react-router-dom"
+import { toast } from "sonner"
+import { ArrowLeft, DownloadSimple, Prohibit } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { LoadingState, ErrorState } from "@/components/shared/States"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { useAsync } from "@/hooks/useAsync"
-import { invoicesApi } from "@/lib/api/client"
+import { ApiError, companiesApi, invoicesApi, openAuthedFile } from "@/lib/api/client"
 import { formatDate, formatMoney } from "@/lib/format"
+import type { InvoiceStatus } from "@/lib/api/types"
 
 const KIND_LABEL: Record<string, string> = {
   freight: "Freight",
@@ -19,7 +33,7 @@ const KIND_LABEL: Record<string, string> = {
   other: "Other",
 }
 
-const STATUS_LABEL: Record<string, string> = { draft: "Draft", issued: "Issued", paid: "Paid", cancelled: "Cancelled" }
+const STATUS_LABEL: Record<InvoiceStatus, string> = { draft: "Draft", issued: "Issued", paid: "Paid", cancelled: "Cancelled" }
 
 export function InvoicePage() {
   const { id } = useParams<{ id: string }>()
@@ -27,6 +41,12 @@ export function InvoicePage() {
   const navigate = useNavigate()
 
   const invoice = useAsync(() => invoicesApi.get(invoiceId), [invoiceId])
+  const companies = useAsync(() => companiesApi.list(), [])
+  // No dedicated "invoices for this quote" endpoint -- the full list is
+  // small enough in this app to filter client-side for the replaces/
+  // replaced-by relationship, rather than adding a new backend query just
+  // for this one display.
+  const allInvoices = useAsync(() => invoicesApi.list(), [])
 
   if (invoice.loading) return <LoadingState rows={6} />
   if (invoice.error || !invoice.data) {
@@ -34,6 +54,11 @@ export function InvoicePage() {
   }
 
   const inv = invoice.data
+  const billingEntity = companies.data?.find((c) => c.id === inv.company_id)?.name
+  const replaces = inv.replaces_invoice_id
+    ? allInvoices.data?.find((i) => i.id === inv.replaces_invoice_id)
+    : undefined
+  const replacedBy = allInvoices.data?.find((i) => i.replaces_invoice_id === inv.id)
 
   return (
     <div>
@@ -46,19 +71,34 @@ export function InvoicePage() {
         title={
           <span className="flex flex-wrap items-center gap-2">
             {inv.invoice_number}
-            <Badge variant="outline">{STATUS_LABEL[inv.status] ?? inv.status}</Badge>
+            <Badge variant={inv.status === "cancelled" ? "secondary" : "outline"}>{STATUS_LABEL[inv.status] ?? inv.status}</Badge>
           </span>
         }
         description={`${inv.customer_name_snapshot} · ${inv.origin_snapshot} → ${inv.destination_snapshot} · Issued ${formatDate(inv.issued_date)}`}
         action={
-          <a href={invoicesApi.pdfUrl(inv.id)} target="_blank" rel="noreferrer">
-            <Button variant="outline" className="gap-1.5">
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => openAuthedFile(invoicesApi.pdfUrl(inv.id)).catch(() => toast.error("Could not open PDF."))}
+            >
               <DownloadSimple size={16} />
               Download PDF
             </Button>
-          </a>
+            {inv.status === "issued" && <CancelInvoiceDialog invoiceId={inv.id} onCancelled={invoice.reload} />}
+          </div>
         }
       />
+
+      {inv.status === "cancelled" && (
+        <div className="mb-6 flex items-start gap-2.5 rounded-xl bg-muted px-4 py-3 text-sm text-muted-foreground">
+          <Prohibit size={18} weight="fill" className="mt-0.5 shrink-0" />
+          <span>
+            Cancelled by {inv.cancelled_by ?? "ops"} on {inv.cancelled_at ? formatDate(inv.cancelled_at) : "—"}.
+            {inv.cancelled_reason && <> Reason: {inv.cancelled_reason}</>} This invoice is no longer payable.
+          </span>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
@@ -121,6 +161,23 @@ export function InvoicePage() {
         <div className="flex flex-col gap-6">
           <Card>
             <CardHeader>
+              <CardTitle className="text-base">Details</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <InfoRow label="Billing entity" value={billingEntity ?? null} />
+              <InfoRowLink label="Originating quote" to={`/quotes/${inv.quote_id}`} value={`Quote #${inv.quote_id}`} />
+              <InfoRowLink label="Job / shipment" to={`/shipments/${inv.shipment_id}`} value={inv.job_number_snapshot ?? `Shipment #${inv.shipment_id}`} />
+              {replaces && (
+                <InfoRowLink label="Replaces" to={`/invoices/${replaces.id}`} value={replaces.invoice_number} />
+              )}
+              {replacedBy && (
+                <InfoRowLink label="Replaced by" to={`/invoices/${replacedBy.id}`} value={replacedBy.invoice_number} />
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle className="text-base">Particulars</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
@@ -141,12 +198,83 @@ export function InvoicePage() {
   )
 }
 
+function CancelInvoiceDialog({ invoiceId, onCancelled }: { invoiceId: number; onCancelled: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleCancel() {
+    if (!reason.trim()) return
+    setSubmitting(true)
+    try {
+      await invoicesApi.cancel(invoiceId, reason.trim())
+      toast.success("Invoice cancelled")
+      setOpen(false)
+      onCancelled()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not cancel invoice.")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" className="gap-1.5 text-destructive hover:text-destructive">
+          <Prohibit size={16} />
+          Cancel invoice
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Cancel invoice</DialogTitle>
+          <DialogDescription>
+            The invoice stays permanently visible in history, marked cancelled -- nothing is deleted or edited.
+            To correct a billing mistake, create a replacement invoice from the same quote afterward.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <Label htmlFor="invoice-cancel-reason">Reason (required)</Label>
+          <Textarea
+            id="invoice-cancel-reason"
+            rows={2}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. Issued in error, wrong billing entity"
+            autoFocus
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={submitting}>
+            Back
+          </Button>
+          <Button variant="destructive" onClick={handleCancel} disabled={submitting || !reason.trim()}>
+            {submitting ? "Cancelling…" : "Cancel invoice"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function InfoRow({ label, value }: { label: string; value: string | null }) {
   if (!value) return null
   return (
     <div className="flex items-center justify-between gap-4">
       <span className="text-muted-foreground">{label}</span>
       <span className="font-medium text-foreground">{value}</span>
+    </div>
+  )
+}
+
+function InfoRowLink({ label, to, value }: { label: string; to: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-muted-foreground">{label}</span>
+      <Link to={to} className="font-medium text-foreground underline outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        {value}
+      </Link>
     </div>
   )
 }

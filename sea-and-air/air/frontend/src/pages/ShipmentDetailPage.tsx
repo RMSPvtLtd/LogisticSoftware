@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
-import { ArrowLeft, CheckCircle, PencilSimple, UsersThree, Warning } from "@phosphor-icons/react"
+import { ArrowLeft, CheckCircle, PauseCircle, PencilSimple, Prohibit, Trash, UsersThree, Warning } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { StageBadge } from "@/components/shared/StageBadge"
 import { RiskBadge } from "@/components/shared/RiskBadge"
@@ -25,6 +25,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Separator } from "@/components/ui/separator"
+import { Badge } from "@/components/ui/badge"
 import { useAsync } from "@/hooks/useAsync"
 import { useStages } from "@/hooks/useStages"
 import { areasApi, customersApi, inquiriesApi, shipmentsApi } from "@/lib/api/client"
@@ -72,7 +73,9 @@ export function ShipmentDetailPage() {
           <span className="flex flex-wrap items-center gap-2">
             {s.job_number ?? `Inquiry #${s.inquiry_id}`}
             <StageBadge stage={s.stage} />
-            {s.is_at_risk && <RiskBadge />}
+            {s.is_cancelled && <Badge variant="secondary">Cancelled</Badge>}
+            {s.is_on_hold && <Badge className="bg-status-warning-bg text-status-warning">On Hold</Badge>}
+            {!s.is_cancelled && s.is_at_risk && <RiskBadge />}
             <PriorityBadge priority={s.priority} />
           </span>
         }
@@ -96,13 +99,30 @@ export function ShipmentDetailPage() {
         </div>
 
         <div className="flex flex-col gap-6">
-          <NextStageCard shipmentId={s.id} nextStage={nextStage} onDone={shipment.reload} />
-          <CorrectionCard shipmentId={s.id} currentStage={s.stage} onDone={shipment.reload} />
+          {s.is_cancelled ? (
+            <Card className="border-muted-foreground/20 bg-muted/40">
+              <CardContent className="flex items-start gap-2.5 py-4 text-sm text-muted-foreground">
+                <Prohibit size={18} weight="fill" className="mt-0.5 shrink-0" />
+                <span>
+                  Cancelled by {s.cancelled_by ?? "ops"} on {s.cancelled_at ? formatDate(s.cancelled_at) : "—"}.
+                  {s.cancelled_reason && <> Reason: {s.cancelled_reason}</>}
+                </span>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <NextStageCard shipmentId={s.id} nextStage={nextStage} onDone={shipment.reload} />
+              <CorrectionCard shipmentId={s.id} currentStage={s.stage} onDone={shipment.reload} />
+            </>
+          )}
+          <HoldCard shipmentId={s.id} isOnHold={s.is_on_hold} holdReason={s.hold_reason} onDone={shipment.reload} />
           <PriorityCard shipmentId={s.id} priority={s.priority} onDone={shipment.reload} />
           <RiskCard shipmentId={s.id} isAtRisk={s.is_at_risk} riskReason={s.risk_reason} onDone={shipment.reload} />
           <RoutingCard shipmentId={s.id} carrier={s.carrier} voyageFlightNumber={s.voyage_flight_number} onDone={shipment.reload} />
           <ReferencesCard shipmentId={s.id} references={s.references} onDone={shipment.reload} />
           <DocumentsCard shipmentId={s.id} />
+          {!s.is_cancelled && <CancelShipmentCard shipmentId={s.id} onDone={shipment.reload} />}
+          <DeleteShipmentCard shipmentId={s.id} label={s.job_number ?? `Inquiry #${s.inquiry_id}`} />
 
           <Card>
             <CardHeader>
@@ -491,6 +511,201 @@ function RiskCard({
         )}
       </CardContent>
     </Card>
+  )
+}
+
+function HoldCard({
+  shipmentId,
+  isOnHold,
+  holdReason,
+  onDone,
+}: {
+  shipmentId: number
+  isOnHold: boolean
+  holdReason: string | null
+  onDone: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSetHold(next: boolean) {
+    setSubmitting(true)
+    try {
+      await shipmentsApi.setHold(shipmentId, next, next ? reason.trim() || undefined : undefined)
+      toast.success(next ? "Shipment placed on hold" : "Hold removed")
+      setOpen(false)
+      setReason("")
+      onDone()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not update hold status.")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Operational hold</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isOnHold ? (
+          <>
+            {holdReason && <p className="rounded-lg bg-status-warning-bg px-3 py-2 text-sm text-status-warning">{holdReason}</p>}
+            <p className="text-xs text-muted-foreground">Workers cannot advance this shipment while it's on hold.</p>
+            <Button variant="outline" disabled={submitting} onClick={() => handleSetHold(false)} className="w-full gap-1.5">
+              <PauseCircle size={16} />
+              {submitting ? "Updating…" : "Remove hold"}
+            </Button>
+          </>
+        ) : open ? (
+          <>
+            <div className="space-y-1.5">
+              <Label htmlFor="hold-reason">Why is this shipment on hold?</Label>
+              <Textarea
+                id="hold-reason"
+                rows={2}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="e.g. Missing customs document"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+              <Button className="flex-1" disabled={submitting} onClick={() => handleSetHold(true)}>
+                {submitting ? "Saving…" : "Place on hold"}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <Button variant="outline" className="w-full gap-1.5" onClick={() => setOpen(true)}>
+            <PauseCircle size={16} />
+            Place on hold
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function CancelShipmentCard({ shipmentId, onDone }: { shipmentId: number; onDone: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState("")
+  const [customerNote, setCustomerNote] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleCancel() {
+    if (!reason.trim()) return
+    setSubmitting(true)
+    try {
+      await shipmentsApi.cancel(shipmentId, reason.trim(), customerNote.trim() || undefined)
+      toast.success("Shipment cancelled")
+      setOpen(false)
+      onDone()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not cancel shipment.")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" className="w-full gap-1.5 text-destructive hover:text-destructive">
+          <Prohibit size={16} />
+          Cancel shipment
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Cancel shipment</DialogTitle>
+          <DialogDescription>
+            The shipment stays visible in history at its current stage — nothing is deleted. This cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="cancel-reason">Internal reason (required)</Label>
+            <Textarea
+              id="cancel-reason"
+              rows={2}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Not shown to the customer"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cancel-customer-note">Customer-visible note (optional)</Label>
+            <Textarea
+              id="cancel-customer-note"
+              rows={2}
+              value={customerNote}
+              onChange={(e) => setCustomerNote(e.target.value)}
+              placeholder="Defaults to “Shipment cancelled.” if left blank"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={submitting}>
+            Back
+          </Button>
+          <Button variant="destructive" onClick={handleCancel} disabled={submitting || !reason.trim()}>
+            {submitting ? "Cancelling…" : "Cancel shipment"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function DeleteShipmentCard({ shipmentId, label }: { shipmentId: number; label: string }) {
+  const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleDelete() {
+    setSubmitting(true)
+    try {
+      await shipmentsApi.remove(shipmentId)
+      toast.success(`${label} deleted`)
+      navigate("/shipments")
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not delete shipment.")
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" className="w-full gap-1.5 text-destructive hover:text-destructive">
+          <Trash size={16} />
+          Delete shipment
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete {label}?</DialogTitle>
+          <DialogDescription>
+            This permanently erases the shipment, its inquiry, every quote revision, documents, and status
+            history — unlike Cancel, nothing is kept. Refused if any quote has an invoice; cancel first in that
+            case. This cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={submitting}>
+            Back
+          </Button>
+          <Button variant="destructive" onClick={handleDelete} disabled={submitting}>
+            {submitting ? "Deleting…" : "Delete permanently"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

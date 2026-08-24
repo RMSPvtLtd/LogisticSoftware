@@ -69,13 +69,28 @@ export function InquiryForm() {
       if (customerMode === "existing") {
         resolvedCustomerId = Number(customerId)
       } else {
-        const created = await customersApi.create({
-          name: newName.trim(),
-          company_name: newCompany.trim() || null,
-          email: newEmail.trim(),
-          phone: newPhone.trim() || null,
-        })
-        resolvedCustomerId = created.id
+        try {
+          const created = await customersApi.create({
+            name: newName.trim(),
+            company_name: newCompany.trim() || null,
+            email: newEmail.trim(),
+            phone: newPhone.trim() || null,
+          })
+          resolvedCustomerId = created.id
+        } catch (err) {
+          // A customer with this email already exists -- the backend names
+          // them in err.body.customer_id. Switch to "Existing customer" and
+          // preselect them instead of just leaving the user stuck on a
+          // generic conflict error.
+          const body = err instanceof ApiError ? (err.body as { customer_id?: number } | undefined) : undefined
+          if (err instanceof ApiError && err.status === 409 && body?.customer_id) {
+            setCustomerMode("existing")
+            setCustomerId(String(body.customer_id))
+            toast.error(`${err.message} Switched to that customer -- review and submit again.`)
+            return
+          }
+          throw err
+        }
       }
 
       const inquiry = await inquiriesApi.create({

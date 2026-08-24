@@ -5,18 +5,21 @@ entry points touch `stage`, each producing exactly one new `StatusEvent`:
   correct_stage  -- deliberate repair, may jump to any operational stage
   record_note    -- annotation only, never touches stage
 
-set_risk and set_priority also live here since they're the same kind of
-"independent of stage" shipment field, each recording its change as an
-internal note via record_note rather than a stage change.
+set_risk, set_priority, set_hold, and cancel_shipment also live here since
+they're the same kind of "independent of stage" shipment field, each
+recording its change as a StatusEvent via record_note rather than a stage
+change.
 
 No function here updates or deletes an existing StatusEvent. Corrections and
 notes are always new rows — this is what keeps shipment history append-only.
 """
 
+from datetime import datetime, timezone
+
 from sqlalchemy.orm import Session
 
-from utils.errors import InvalidCorrection, InvalidTransition
-from models.enums import CORRECTABLE_STAGES, EventSource, Priority, ShipmentStage, next_stage
+from utils.errors import InvalidCancellation, InvalidCorrection, InvalidTransition
+from models.enums import CORRECTABLE_STAGES, EventSource, Priority, ShipmentStage, next_stage, previous_stage, stage_label
 from models.shipment import Shipment, StatusEvent
 
 
@@ -34,6 +37,11 @@ def advance_stage(
     MANUAL, adapter ingestion passes AUTOMATED) — it is never taken from a
     request body, since it is part of the audit trail.
     """
+    if shipment.is_cancelled:
+        raise InvalidTransition(f"Shipment {shipment.id} is cancelled and cannot be advanced")
+    if shipment.is_on_hold:
+        raise InvalidTransition(f"Shipment {shipment.id} is on hold and cannot be advanced")
+
     expected = next_stage(shipment.stage)
     if expected is None or to_stage != expected:
         current = shipment.stage.value
@@ -64,8 +72,11 @@ def correct_stage(
     mistake, while still producing a full audit trail entry. Restricted to
     CORRECTABLE_STAGES (job_opening onward) — correcting a shipment "back"
     to inquiry or quotation doesn't make operational sense once a job
-    number has been issued.
+    number has been issued. Not blocked by hold (this IS ops's explicit
+    override), but a cancelled shipment is terminal even for corrections.
     """
+    if shipment.is_cancelled:
+        raise InvalidCorrection(f"Shipment {shipment.id} is cancelled and cannot be corrected")
     if not reason or not reason.strip():
         raise InvalidCorrection("A correction reason is required")
     if to_stage not in CORRECTABLE_STAGES:
@@ -73,13 +84,85 @@ def correct_stage(
     if to_stage == shipment.stage:
         raise InvalidCorrection(f"Shipment {shipment.id} is already at stage {to_stage.value}")
 
+    previous = shipment.stage
     shipment.stage = to_stage
     event = StatusEvent(
-        stage=to_stage, actor=actor, note=reason, source=EventSource.CORRECTION, is_stage_change=True
+        stage=to_stage,
+        actor=actor,
+        note=f"Corrected from {stage_label(previous)} to {stage_label(to_stage)}: {reason}",
+        source=EventSource.CORRECTION,
+        is_stage_change=True,
     )
     shipment.status_events.append(event)
     session.flush()
     return event
+
+
+def cancel_shipment(
+    session: Session,
+    shipment: Shipment,
+    *,
+    reason: str,
+    actor: str,
+    customer_note: str | None = None,
+) -> Shipment:
+    """Terminal, independent of `stage` -- chosen over adding CANCELLED to
+    ShipmentStage itself, which would break every place that does linear
+    stage_index arithmetic (the tracking checklist, next_stage/previous_stage,
+    worker-area lookup). `reason` is internal/audit-only and must never reach
+    a customer surface; `customer_note` is the deliberately-written
+    customer-safe text (defaults to a generic message if omitted -- see
+    schemas.tracking). Two StatusEvent rows are recorded so the existing
+    is_internal filtering in schemas.tracking.from_shipment does the right
+    thing by construction, not because a filter remembered to exclude the
+    internal one.
+    """
+    if shipment.is_cancelled:
+        raise InvalidCancellation(f"Shipment {shipment.id} is already cancelled")
+    if not reason or not reason.strip():
+        raise InvalidCancellation("A cancellation reason is required")
+    if shipment.stage == ShipmentStage.INVOICE_TO_CUSTOMER:
+        raise InvalidCancellation(f"Shipment {shipment.id} has already been fully completed and cannot be cancelled")
+
+    now = datetime.now(timezone.utc)
+    shipment.is_cancelled = True
+    shipment.cancelled_reason = reason
+    shipment.customer_cancellation_note = customer_note
+    shipment.cancelled_by = actor
+    shipment.cancelled_at = now
+
+    record_note(session, shipment, actor=actor, note=f"Cancelled: {reason}", source=EventSource.SYSTEM, is_internal=True)
+    record_note(
+        session, shipment, actor=actor,
+        note=customer_note or "Shipment cancelled.", source=EventSource.SYSTEM, is_internal=False,
+    )
+    return shipment
+
+
+def set_hold(
+    session: Session, shipment: Shipment, *, on_hold: bool, reason: str | None, actor: str
+) -> Shipment:
+    """Set or clear the operational hold flag, independent of stage --
+    mirrors `set_risk`'s exact shape. A held shipment can't be advanced by a
+    worker (see advance_stage); ops's correct_stage remains unaffected, since
+    hold is meant to pause normal progression, not block a deliberate fix.
+    """
+    now = datetime.now(timezone.utc)
+    shipment.is_on_hold = on_hold
+    if on_hold:
+        shipment.hold_reason = reason
+        shipment.hold_created_by = actor
+        shipment.hold_created_at = now
+        shipment.hold_removed_by = None
+        shipment.hold_removed_at = None
+        note = f"Placed on hold: {reason}" if reason else "Placed on hold"
+    else:
+        shipment.hold_removed_by = actor
+        shipment.hold_removed_at = now
+        note = "Hold removed"
+
+    record_note(session, shipment, actor=actor, note=note, source=EventSource.SYSTEM, is_internal=True)
+    return shipment
 
 
 def record_note(

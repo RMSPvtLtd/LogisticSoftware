@@ -7,6 +7,8 @@ from models.enums import TransportMode
 
 
 class InquiryCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     customer_id: int
     origin: str = Field(min_length=1, max_length=120)
     destination: str = Field(min_length=1, max_length=120)

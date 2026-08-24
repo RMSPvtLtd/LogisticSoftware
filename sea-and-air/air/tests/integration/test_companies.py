@@ -25,10 +25,10 @@ def test_get_company_not_found(db_session):
         get_company(db_session, 999999)
 
 
-def test_companies_endpoint(client, db_session):
+def test_companies_endpoint(client, db_session, ops_headers):
     make_company(db_session, name="Demo Freight Co")
     db_session.commit()
 
-    r = client.get("/companies")
+    r = client.get("/companies", headers=ops_headers)
     assert r.status_code == 200, r.text
     assert any(c["name"] == "Demo Freight Co" for c in r.json())

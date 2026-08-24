@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom"
-import { Package, Receipt, SignOut, Truck } from "@phosphor-icons/react"
+import { FileText, Package, Receipt, SignOut, Truck } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 import { ThemeToggle } from "@/components/shared/ThemeToggle"
 import { Button } from "@/components/ui/button"
@@ -8,6 +8,7 @@ import { useCustomerAuth } from "@/hooks/useCustomerAuth"
 const NAV_LINKS = [
   { to: "/customer/shipments", label: "Shipments", icon: Package },
   { to: "/customer/quotes", label: "Quotes", icon: Receipt },
+  { to: "/customer/invoices", label: "Invoices", icon: FileText },
 ]
 
 export function CustomerShell() {

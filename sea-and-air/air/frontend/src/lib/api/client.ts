@@ -5,19 +5,27 @@
 
 import type {
   Area,
+  ChangePasswordRequest,
   Company,
   Customer,
   CustomerCreate,
+  CustomerInvoiceDetail,
+  CustomerInvoiceSummary,
   CustomerLoginResponse,
   CustomerPortalCredentials,
   CustomerShipmentSummary,
+  DocumentType,
   Inquiry,
   InquiryCreate,
   Invoice,
   LineItemOverride,
   LoginResponse,
+  OpsLoginResponse,
+  OpsUser,
   Priority,
   Quote,
+  RateCard,
+  RateCardInput,
   SeaTrackingResult,
   Shipment,
   ShipmentDocument,
@@ -37,10 +45,15 @@ const SEA_BASE_URL = import.meta.env.VITE_SEA_API_BASE_URL ?? "/sea-api"
 
 export class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  // Raw parsed response body, when the backend attaches structured detail
+  // beyond the plain `detail` string (e.g. DuplicateCustomerEmail's
+  // `customer_id`) -- undefined when the body was missing or non-JSON.
+  body?: unknown
+  constructor(status: number, message: string, body?: unknown) {
     super(message)
     this.status = status
     this.name = "ApiError"
+    this.body = body
   }
 }
 
@@ -55,8 +68,10 @@ async function request<T>(path: string, init?: RequestInit, base: string = BASE_
 
   if (!res.ok) {
     let detail = res.statusText
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let body: any
     try {
-      const body = await res.json()
+      body = await res.json()
       if (typeof body?.detail === "string") detail = body.detail
       else if (Array.isArray(body?.detail)) {
         // FastAPI/Pydantic validation errors: a list of {loc, msg, ...}.
@@ -65,7 +80,7 @@ async function request<T>(path: string, init?: RequestInit, base: string = BASE_
     } catch {
       // response body wasn't JSON -- fall back to statusText
     }
-    throw new ApiError(res.status, detail)
+    throw new ApiError(res.status, detail, body)
   }
 
   if (res.status === 204) return undefined as T
@@ -78,17 +93,57 @@ function qs(params: object): string {
   return "?" + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString()
 }
 
+// --- ops session token ---
+//
+// Every ops-facing endpoint now requires a bearer token (see
+// utils.security.get_current_ops_user on the backend). Unlike the worker/
+// customer portals, ops API functions below don't take an explicit `token`
+// parameter -- there'd be dozens of call sites across nearly every ops page
+// to thread it through. Instead `useOpsAuth` calls `setOpsToken` once on
+// login/logout/session-restore, and `opsRequest` (used by every ops-facing
+// API object below) reads it from this module-level variable at call time.
+let opsToken: string | null = null
+
+export function setOpsToken(token: string | null) {
+  opsToken = token
+}
+
+function opsAuthHeader(): HeadersInit {
+  return opsToken ? { Authorization: `Bearer ${opsToken}` } : {}
+}
+
+function opsRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  return request<T>(path, { ...init, headers: { ...opsAuthHeader(), ...init?.headers } })
+}
+
+// Fetches a PDF/document with the ops bearer token attached (a plain <a
+// href> can't carry a custom header) and opens it in a new tab as a blob
+// URL. Used for quote/invoice PDF previews and shipment document downloads,
+// all of which now require ops auth.
+export async function openAuthedFile(url: string): Promise<void> {
+  const res = await fetch(url, { headers: opsAuthHeader() })
+  if (!res.ok) {
+    throw new ApiError(res.status, res.statusText)
+  }
+  const blob = await res.blob()
+  const blobUrl = URL.createObjectURL(blob)
+  window.open(blobUrl, "_blank")
+  // Revoked after a delay rather than immediately -- the new tab needs time
+  // to actually load the blob URL before it's freed.
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
+}
+
 // --- customers ---
 
 export const customersApi = {
-  list: () => request<Customer[]>("/customers"),
-  get: (id: number) => request<Customer>(`/customers/${id}`),
+  list: () => opsRequest<Customer[]>("/customers"),
+  get: (id: number) => opsRequest<Customer>(`/customers/${id}`),
   create: (payload: CustomerCreate) =>
-    request<Customer>("/customers", { method: "POST", body: JSON.stringify(payload) }),
+    opsRequest<Customer>("/customers", { method: "POST", body: JSON.stringify(payload) }),
   grantPortalAccess: (id: number, payload: CustomerPortalCredentials) =>
-    request<Customer>(`/customers/${id}/portal-access`, { method: "POST", body: JSON.stringify(payload) }),
+    opsRequest<Customer>(`/customers/${id}/portal-access`, { method: "POST", body: JSON.stringify(payload) }),
   setPortalActive: (id: number, isActive: boolean) =>
-    request<Customer>(`/customers/${id}/portal-access`, {
+    opsRequest<Customer>(`/customers/${id}/portal-access`, {
       method: "PATCH",
       body: JSON.stringify({ is_active: isActive }),
     }),
@@ -97,86 +152,123 @@ export const customersApi = {
 // --- inquiries ---
 
 export const inquiriesApi = {
-  list: () => request<Inquiry[]>("/inquiries"),
-  get: (id: number) => request<Inquiry>(`/inquiries/${id}`),
+  list: () => opsRequest<Inquiry[]>("/inquiries"),
+  get: (id: number) => opsRequest<Inquiry>(`/inquiries/${id}`),
   create: (payload: InquiryCreate) =>
-    request<Inquiry>("/inquiries", { method: "POST", body: JSON.stringify(payload) }),
+    opsRequest<Inquiry>("/inquiries", { method: "POST", body: JSON.stringify(payload) }),
 }
 
 // --- quotes ---
 
 export const quotesApi = {
-  list: () => request<Quote[]>("/quotes"),
-  get: (id: number) => request<Quote>(`/quotes/${id}`),
+  list: () => opsRequest<Quote[]>("/quotes"),
+  get: (id: number) => opsRequest<Quote>(`/quotes/${id}`),
   generate: (inquiryId: number) =>
-    request<Quote>("/quotes/generate", { method: "POST", body: JSON.stringify({ inquiry_id: inquiryId }) }),
+    opsRequest<Quote>("/quotes/generate", { method: "POST", body: JSON.stringify({ inquiry_id: inquiryId }) }),
   overrideLineItems: (id: number, overrides: LineItemOverride[]) =>
-    request<Quote>(`/quotes/${id}/line-items`, { method: "PATCH", body: JSON.stringify({ overrides }) }),
+    opsRequest<Quote>(`/quotes/${id}/line-items`, { method: "PATCH", body: JSON.stringify({ overrides }) }),
   setAdjustments: (id: number, taxAmount: string, discountAmount: string) =>
-    request<Quote>(`/quotes/${id}/adjustments`, {
+    opsRequest<Quote>(`/quotes/${id}/adjustments`, {
       method: "PATCH",
       body: JSON.stringify({ tax_amount: taxAmount, discount_amount: discountAmount }),
     }),
-  send: (id: number) => request<Quote>(`/quotes/${id}/send`, { method: "POST" }),
-  accept: (id: number) => request<Shipment>(`/quotes/${id}/accept`, { method: "POST" }),
+  send: (id: number) => opsRequest<Quote>(`/quotes/${id}/send`, { method: "POST" }),
+  accept: (id: number) => opsRequest<Shipment>(`/quotes/${id}/accept`, { method: "POST" }),
+  reject: (id: number, reason: string) =>
+    opsRequest<Quote>(`/quotes/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }),
+  revisions: (id: number) => opsRequest<Quote[]>(`/quotes/${id}/revisions`),
   pdfUrl: (id: number) => `${BASE_URL}/quotes/${id}/pdf`,
 }
 
 // --- companies (issuing entities) ---
 
 export const companiesApi = {
-  list: () => request<Company[]>("/companies"),
+  list: () => opsRequest<Company[]>("/companies"),
+}
+
+// --- rate cards ---
+
+export const rateCardsApi = {
+  list: () => opsRequest<RateCard[]>("/rate-cards"),
+  get: (id: number) => opsRequest<RateCard>(`/rate-cards/${id}`),
+  create: (payload: RateCardInput) =>
+    opsRequest<RateCard>("/rate-cards", { method: "POST", body: JSON.stringify(payload) }),
+  update: (id: number, payload: RateCardInput) =>
+    opsRequest<RateCard>(`/rate-cards/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  remove: (id: number) => opsRequest<void>(`/rate-cards/${id}`, { method: "DELETE" }),
 }
 
 // --- invoices ---
 
 export const invoicesApi = {
-  list: () => request<Invoice[]>("/invoices"),
-  get: (id: number) => request<Invoice>(`/invoices/${id}`),
-  createFromQuote: (quoteId: number, companyId: number) =>
-    request<Invoice>(`/quotes/${quoteId}/invoice`, { method: "POST", body: JSON.stringify({ company_id: companyId }) }),
+  list: () => opsRequest<Invoice[]>("/invoices"),
+  get: (id: number) => opsRequest<Invoice>(`/invoices/${id}`),
+  createFromQuote: (quoteId: number, companyId: number, replacesInvoiceId?: number) =>
+    opsRequest<Invoice>(`/quotes/${quoteId}/invoice`, {
+      method: "POST",
+      body: JSON.stringify({ company_id: companyId, replaces_invoice_id: replacesInvoiceId ?? null }),
+    }),
+  cancel: (id: number, reason: string) =>
+    opsRequest<Invoice>(`/invoices/${id}/cancel`, { method: "POST", body: JSON.stringify({ reason }) }),
   pdfUrl: (id: number) => `${BASE_URL}/invoices/${id}/pdf`,
 }
 
 // --- shipments ---
 
 export const shipmentsApi = {
-  list: (filters: ShipmentFilters = {}) => request<Shipment[]>(`/shipments${qs(filters)}`),
-  get: (id: number) => request<Shipment>(`/shipments/${id}`),
+  list: (filters: ShipmentFilters = {}) => opsRequest<Shipment[]>(`/shipments${qs(filters)}`),
+  get: (id: number) => opsRequest<Shipment>(`/shipments/${id}`),
   correctStatus: (id: number, stage: string, reason: string) =>
-    request<Shipment>(`/shipments/${id}/status/correct`, {
+    opsRequest<Shipment>(`/shipments/${id}/status/correct`, {
       method: "POST",
       body: JSON.stringify({ stage, reason }),
     }),
   addReference: (id: number, type: string, value: string) =>
-    request<Shipment>(`/shipments/${id}/references`, { method: "POST", body: JSON.stringify({ type, value }) }),
+    opsRequest<Shipment>(`/shipments/${id}/references`, { method: "POST", body: JSON.stringify({ type, value }) }),
   setRisk: (id: number, isAtRisk: boolean, riskReason?: string) =>
-    request<Shipment>(`/shipments/${id}/risk`, {
+    opsRequest<Shipment>(`/shipments/${id}/risk`, {
       method: "POST",
       body: JSON.stringify({ is_at_risk: isAtRisk, risk_reason: riskReason ?? null }),
     }),
   invoice: (id: number, note?: string) =>
-    request<Shipment>(`/shipments/${id}/invoice`, { method: "POST", body: JSON.stringify({ note: note || undefined }) }),
+    opsRequest<Shipment>(`/shipments/${id}/invoice`, { method: "POST", body: JSON.stringify({ note: note || undefined }) }),
   setPriority: (id: number, priority: Priority) =>
-    request<Shipment>(`/shipments/${id}/priority`, { method: "POST", body: JSON.stringify({ priority }) }),
+    opsRequest<Shipment>(`/shipments/${id}/priority`, { method: "POST", body: JSON.stringify({ priority }) }),
   setRouting: (id: number, carrier: string | null, voyageFlightNumber: string | null) =>
-    request<Shipment>(`/shipments/${id}/routing`, {
+    opsRequest<Shipment>(`/shipments/${id}/routing`, {
       method: "POST",
       body: JSON.stringify({ carrier, voyage_flight_number: voyageFlightNumber }),
     }),
+  cancel: (id: number, reason: string, customerNote?: string) =>
+    opsRequest<Shipment>(`/shipments/${id}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({ reason, customer_note: customerNote || undefined }),
+    }),
+  setHold: (id: number, onHold: boolean, reason?: string) =>
+    opsRequest<Shipment>(`/shipments/${id}/hold`, {
+      method: "POST",
+      body: JSON.stringify({ on_hold: onHold, reason: reason || undefined }),
+    }),
+  remove: (id: number) => opsRequest<void>(`/shipments/${id}`, { method: "DELETE" }),
 }
 
 // --- shipment documents (PDFs, stored in Postgres -- see backend/services/documents.py) ---
 
 export const documentsApi = {
-  list: (shipmentId: number) => request<ShipmentDocument[]>(`/shipments/${shipmentId}/documents`),
-  // Bypasses `request()`: it unconditionally sets Content-Type: application/json,
-  // which breaks multipart's required `boundary` parameter. The browser must
-  // set Content-Type itself from the FormData.
-  upload: async (shipmentId: number, file: File): Promise<ShipmentDocument> => {
+  list: (shipmentId: number) => opsRequest<ShipmentDocument[]>(`/shipments/${shipmentId}/documents`),
+  // Bypasses `request()`/`opsRequest()`: it unconditionally sets
+  // Content-Type: application/json, which breaks multipart's required
+  // `boundary` parameter. The browser must set Content-Type itself from the
+  // FormData; the ops bearer token is still attached explicitly.
+  upload: async (shipmentId: number, file: File, documentType?: DocumentType): Promise<ShipmentDocument> => {
     const form = new FormData()
     form.append("file", file)
-    const res = await fetch(`${BASE_URL}/shipments/${shipmentId}/documents`, { method: "POST", body: form })
+    if (documentType) form.append("document_type", documentType)
+    const res = await fetch(`${BASE_URL}/shipments/${shipmentId}/documents`, {
+      method: "POST",
+      body: form,
+      headers: opsAuthHeader(),
+    })
     if (!res.ok) {
       let detail = res.statusText
       try {
@@ -229,6 +321,7 @@ export const authApi = {
 
 export const workerPortalApi = {
   queue: (token: string) => request<WorkerQueueItem[]>("/worker/queue", { headers: authHeader(token) }),
+  completed: (token: string) => request<WorkerQueueItem[]>("/worker/completed", { headers: authHeader(token) }),
   complete: (token: string, shipmentId: number, note?: string) =>
     request<WorkerQueueItem>(`/worker/shipments/${shipmentId}/complete`, {
       method: "POST",
@@ -282,17 +375,31 @@ export const customerPortalApi = {
     request<TrackingResult>(`/customer/shipments/${id}`, { headers: authHeader(token) }),
   quotes: (token: string) => request<Quote[]>("/customer/quotes", { headers: authHeader(token) }),
   quote: (token: string, id: number) => request<Quote>(`/customer/quotes/${id}`, { headers: authHeader(token) }),
+  invoices: (token: string) =>
+    request<CustomerInvoiceSummary[]>("/customer/invoices", { headers: authHeader(token) }),
+  invoice: (token: string, id: number) =>
+    request<CustomerInvoiceDetail>(`/customer/invoices/${id}`, { headers: authHeader(token) }),
 }
 
-// --- admin: areas + workers (unauthenticated, same trust level as the rest of the ops API) ---
+// --- ops auth ---
+
+export const opsAuthApi = {
+  login: (username: string, password: string) =>
+    request<OpsLoginResponse>("/ops/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+  me: () => opsRequest<OpsUser>("/ops/me"),
+  changePassword: (payload: ChangePasswordRequest) =>
+    opsRequest<OpsUser>("/ops/change-password", { method: "POST", body: JSON.stringify(payload) }),
+}
+
+// --- admin: areas + workers (ops-authenticated, same as the rest of the ops API) ---
 
 export const areasApi = {
-  list: () => request<Area[]>("/areas"),
+  list: () => opsRequest<Area[]>("/areas"),
 }
 
 export const workersApi = {
-  list: () => request<Worker[]>("/workers"),
-  create: (payload: WorkerCreate) => request<Worker>("/workers", { method: "POST", body: JSON.stringify(payload) }),
+  list: () => opsRequest<Worker[]>("/workers"),
+  create: (payload: WorkerCreate) => opsRequest<Worker>("/workers", { method: "POST", body: JSON.stringify(payload) }),
   setActive: (id: number, isActive: boolean) =>
-    request<Worker>(`/workers/${id}`, { method: "PATCH", body: JSON.stringify({ is_active: isActive }) }),
+    opsRequest<Worker>(`/workers/${id}`, { method: "PATCH", body: JSON.stringify({ is_active: isActive }) }),
 }

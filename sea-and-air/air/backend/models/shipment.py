@@ -43,6 +43,26 @@ class Shipment(TimestampMixin, Base):
     carrier: Mapped[str | None] = mapped_column(String(120))
     voyage_flight_number: Mapped[str | None] = mapped_column(String(60))
 
+    # --- cancellation -- set only by services.transitions.cancel_shipment.
+    # cancelled_reason is internal (ops/audit only); customer_cancellation_note
+    # is the optional, deliberately-written customer-safe text -- see that
+    # function's docstring for why these are kept separate. ---
+    is_cancelled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    cancelled_reason: Mapped[str | None] = mapped_column(Text)
+    customer_cancellation_note: Mapped[str | None] = mapped_column(Text)
+    cancelled_by: Mapped[str | None] = mapped_column(String(120))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # --- operational hold -- set only by services.transitions.set_hold.
+    # Independent of stage, same as is_at_risk/priority: a held shipment stays
+    # exactly where it is, it just can't be advanced by a worker. ---
+    is_on_hold: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    hold_reason: Mapped[str | None] = mapped_column(Text)
+    hold_created_by: Mapped[str | None] = mapped_column(String(120))
+    hold_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    hold_removed_by: Mapped[str | None] = mapped_column(String(120))
+    hold_removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     customer: Mapped["Customer"] = relationship(back_populates="shipments")  # noqa: F821
     inquiry: Mapped["Inquiry"] = relationship(back_populates="shipment")  # noqa: F821
     quote: Mapped["Quote | None"] = relationship(back_populates="shipment")  # noqa: F821

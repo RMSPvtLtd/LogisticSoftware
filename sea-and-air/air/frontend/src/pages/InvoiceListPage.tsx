@@ -3,6 +3,7 @@ import { Link } from "react-router-dom"
 import { Receipt } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { LoadingState, ErrorState, EmptyState } from "@/components/shared/States"
+import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useAsync } from "@/hooks/useAsync"
 import { invoicesApi } from "@/lib/api/client"
@@ -60,7 +61,11 @@ export function InvoiceListPage() {
                   <TableCell className="whitespace-nowrap">
                     {invoice.origin_snapshot} → {invoice.destination_snapshot}
                   </TableCell>
-                  <TableCell>{STATUS_LABEL[invoice.status] ?? invoice.status}</TableCell>
+                  <TableCell>
+                    <Badge variant={invoice.status === "cancelled" ? "secondary" : "outline"}>
+                      {STATUS_LABEL[invoice.status] ?? invoice.status}
+                    </Badge>
+                  </TableCell>
                   <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">
                     {formatDate(invoice.issued_date)}
                   </TableCell>

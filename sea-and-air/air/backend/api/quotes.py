@@ -3,27 +3,31 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from db import get_db
-from utils.dependencies import current_actor
 from utils.errors import NotFound
+from models.ops_user import OpsUser
 from models.quote import Quote
 from schemas.quotes import (
     QuoteAdjustmentsRequest,
     QuoteGenerateRequest,
     QuoteLineItemsOverrideRequest,
     QuoteRead,
+    QuoteRejectRequest,
 )
 from schemas.shipments import ShipmentRead
+from utils.security import get_current_ops_user
 from services.pdf_documents import render_quote_pdf
 from services.quotes import (
     LineItemOverride,
     accept_quote,
     generate_quote,
+    list_revisions,
     override_line_items,
+    reject_quote,
     send_quote,
     set_quote_adjustments,
 )
 
-router = APIRouter(prefix="/quotes", tags=["quotes"])
+router = APIRouter(prefix="/quotes", tags=["quotes"], dependencies=[Depends(get_current_ops_user)])
 
 
 @router.post("/generate", response_model=QuoteRead, status_code=201)
@@ -81,5 +85,20 @@ def send(quote_id: int, db: Session = Depends(get_db)) -> Quote:
 
 
 @router.post("/{quote_id}/accept", response_model=ShipmentRead)
-def accept(quote_id: int, actor: str = Depends(current_actor), db: Session = Depends(get_db)):
-    return accept_quote(db, quote_id, actor)
+def accept(quote_id: int, ops_user: OpsUser = Depends(get_current_ops_user), db: Session = Depends(get_db)):
+    return accept_quote(db, quote_id, ops_user.name)
+
+
+@router.post("/{quote_id}/reject", response_model=QuoteRead)
+def reject(
+    quote_id: int,
+    payload: QuoteRejectRequest,
+    ops_user: OpsUser = Depends(get_current_ops_user),
+    db: Session = Depends(get_db),
+) -> Quote:
+    return reject_quote(db, quote_id, reason=payload.reason, actor=ops_user.name)
+
+
+@router.get("/{quote_id}/revisions", response_model=list[QuoteRead])
+def revisions(quote_id: int, db: Session = Depends(get_db)) -> list[Quote]:
+    return list_revisions(db, quote_id)

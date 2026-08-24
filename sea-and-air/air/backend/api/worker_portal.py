@@ -5,18 +5,25 @@ route here requires `get_current_worker` — there is no path to these
 endpoints without a valid, active worker token.
 """
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.orm import Session
 
 from db import get_db
 from utils.errors import NotFound
 from models.document import ShipmentDocument
+from models.enums import DocumentType
 from models.shipment import Shipment
 from models.worker import Worker
 from schemas.documents import ShipmentDocumentRead
 from schemas.worker_portal import CompleteStageRequest, WorkerQueueItem, from_shipment
 from utils.security import get_current_worker
-from services.workers import complete_worker_stage, list_worker_documents, upload_worker_document, worker_queue
+from services.workers import (
+    complete_worker_stage,
+    completed_shipments,
+    list_worker_documents,
+    upload_worker_document,
+    worker_queue,
+)
 
 router = APIRouter(prefix="/worker", tags=["worker-portal"])
 
@@ -26,6 +33,13 @@ def get_queue(
     worker: Worker = Depends(get_current_worker), db: Session = Depends(get_db)
 ) -> list[WorkerQueueItem]:
     return [from_shipment(s) for s in worker_queue(db, worker)]
+
+
+@router.get("/completed", response_model=list[WorkerQueueItem])
+def get_completed(
+    worker: Worker = Depends(get_current_worker), db: Session = Depends(get_db)
+) -> list[WorkerQueueItem]:
+    return [from_shipment(s) for s in completed_shipments(db, worker)]
 
 
 @router.post("/shipments/{shipment_id}/complete", response_model=WorkerQueueItem)
@@ -53,13 +67,15 @@ def _get_shipment(db: Session, shipment_id: int) -> Shipment:
 async def upload_document(
     shipment_id: int,
     file: UploadFile = File(...),
+    document_type: DocumentType = Form(default=DocumentType.OTHER),
     worker: Worker = Depends(get_current_worker),
     db: Session = Depends(get_db),
 ) -> ShipmentDocument:
     shipment = _get_shipment(db, shipment_id)
     data = await file.read()
     return upload_worker_document(
-        db, worker, shipment, filename=file.filename, content_type=file.content_type, data=data
+        db, worker, shipment, filename=file.filename, content_type=file.content_type, data=data,
+        document_type=document_type,
     )
 
 

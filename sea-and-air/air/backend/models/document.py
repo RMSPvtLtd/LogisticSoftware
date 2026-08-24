@@ -5,7 +5,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db import Base
 from models._types import portable_enum
-from models.enums import ShipmentStage
+from models.enums import DocumentType, ShipmentStage
 
 
 class ShipmentDocument(Base):
@@ -25,6 +25,9 @@ class ShipmentDocument(Base):
         ForeignKey("shipment.id", ondelete="CASCADE"), nullable=False, index=True
     )
     stage: Mapped[ShipmentStage] = mapped_column(portable_enum(ShipmentStage), nullable=False)
+    document_type: Mapped[DocumentType] = mapped_column(
+        portable_enum(DocumentType), nullable=False, default=DocumentType.OTHER
+    )
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     content_type: Mapped[str] = mapped_column(String(100), nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)

@@ -44,27 +44,27 @@ def test_priority_change_creates_internal_history_event(db_session):
     assert shipment.stage == stage_before  # priority change never touches stage
 
 
-def test_priority_update_endpoint(client, db_session):
+def test_priority_update_endpoint(client, db_session, ops_headers):
     shipment = _accepted_shipment(db_session)
     db_session.commit()
 
-    r = client.post(f"/shipments/{shipment.id}/priority", json={"priority": "high"})
+    r = client.post(f"/shipments/{shipment.id}/priority", json={"priority": "high"}, headers=ops_headers)
     assert r.status_code == 200, r.text
     assert r.json()["priority"] == "high"
 
-    check = client.get(f"/shipments/{shipment.id}")
+    check = client.get(f"/shipments/{shipment.id}", headers=ops_headers)
     assert check.json()["priority"] == "high"
 
 
-def test_priority_filter_on_list_endpoint(client, db_session):
+def test_priority_filter_on_list_endpoint(client, db_session, ops_headers):
     low = _accepted_shipment(db_session)
     high = _accepted_shipment(db_session)
     db_session.commit()
 
-    r = client.post(f"/shipments/{high.id}/priority", json={"priority": "high"})
+    r = client.post(f"/shipments/{high.id}/priority", json={"priority": "high"}, headers=ops_headers)
     assert r.status_code == 200, r.text
 
-    r = client.get("/shipments", params={"priority": "high"})
+    r = client.get("/shipments", params={"priority": "high"}, headers=ops_headers)
     assert r.status_code == 200, r.text
     ids = [s["id"] for s in r.json()]
     assert high.id in ids

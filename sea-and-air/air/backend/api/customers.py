@@ -6,9 +6,10 @@ from db import get_db
 from utils.errors import NotFound
 from models.customer import Customer
 from schemas.customers import CustomerCreate, CustomerPortalCredentials, CustomerPortalUpdate, CustomerRead
-from services.customers import grant_portal_access, set_portal_active
+from utils.security import get_current_ops_user
+from services.customers import create_customer, grant_portal_access, set_portal_active
 
-router = APIRouter(prefix="/customers", tags=["customers"])
+router = APIRouter(prefix="/customers", tags=["customers"], dependencies=[Depends(get_current_ops_user)])
 
 
 def _get_customer(db: Session, customer_id: int) -> Customer:
@@ -19,11 +20,8 @@ def _get_customer(db: Session, customer_id: int) -> Customer:
 
 
 @router.post("", response_model=CustomerRead, status_code=201)
-def create_customer(payload: CustomerCreate, db: Session = Depends(get_db)) -> Customer:
-    customer = Customer(**payload.model_dump())
-    db.add(customer)
-    db.flush()
-    return customer
+def create_customer_route(payload: CustomerCreate, db: Session = Depends(get_db)) -> Customer:
+    return create_customer(db, **payload.model_dump())
 
 
 @router.get("", response_model=list[CustomerRead])

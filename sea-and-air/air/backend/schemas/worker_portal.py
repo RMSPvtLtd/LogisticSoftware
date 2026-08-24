@@ -14,7 +14,11 @@ from models.shipment import Shipment
 
 class WorkerQueueItem(BaseModel):
     id: int
-    job_number: str
+    # Null whenever a shipment reached this stage via a stage correction
+    # rather than the normal accept_quote flow (job numbers are only
+    # allocated on quote acceptance) -- a worker's queue must still render
+    # such a shipment rather than 500ing on it.
+    job_number: str | None
     customer_name: str
     origin: str
     destination: str

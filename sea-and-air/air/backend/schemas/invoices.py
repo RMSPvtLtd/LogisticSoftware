@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from models.enums import ChargeKind, InvoiceStatus
 
@@ -26,7 +26,15 @@ class InvoiceRead(BaseModel):
     shipment_id: int
     customer_id: int
     company_id: int
+    replaces_invoice_id: int | None
     status: InvoiceStatus
+    cancelled_reason: str | None
+    cancelled_by: str | None
+    cancelled_at: datetime | None
+    payment_date: date | None
+    amount_paid: Decimal | None
+    payment_method: str | None
+    payment_reference: str | None
     issued_date: date
     currency: str
     subtotal: Decimal
@@ -55,4 +63,13 @@ class InvoiceRead(BaseModel):
 
 
 class InvoiceCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     company_id: int
+    replaces_invoice_id: int | None = None
+
+
+class InvoiceCancelRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1)

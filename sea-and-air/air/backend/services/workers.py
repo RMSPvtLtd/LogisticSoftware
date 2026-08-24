@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from utils.errors import NotFound, Unauthorized
 from models.document import ShipmentDocument
-from models.enums import EventSource, previous_stage
+from models.enums import DocumentType, EventSource, previous_stage
 from models.shipment import Shipment, StatusEvent
 from models.worker import Area, Worker
 from utils.security import hash_password, verify_password
@@ -41,12 +41,37 @@ def create_worker(session: Session, *, name: str, username: str, password: str, 
 
 def worker_queue(session: Session, worker: Worker) -> list[Shipment]:
     """Shipments currently waiting to enter this worker's area stage,
-    oldest-waiting first.
+    oldest-waiting first. Cancelled shipments are excluded entirely -- a
+    worker simply never sees one, since there's nothing left to ever do on
+    it. Held shipments stay visible (a hold is meant to be a visible, likely
+    temporary pause) but advance_stage still refuses to complete one.
     """
     waiting_stage = previous_stage(worker.area.stage)
     if waiting_stage is None:
         return []
-    stmt = select(Shipment).where(Shipment.stage == waiting_stage).order_by(Shipment.updated_at)
+    stmt = (
+        select(Shipment)
+        .where(Shipment.stage == waiting_stage, ~Shipment.is_cancelled)
+        .order_by(Shipment.updated_at)
+    )
+    return list(session.execute(stmt).scalars())
+
+
+def completed_shipments(session: Session, worker: Worker) -> list[Shipment]:
+    """Shipments this worker has personally advanced through their area's
+    stage, most recently touched first -- the "Completed" counterpart to
+    `worker_queue`'s "Remaining". Matched on the StatusEvent `complete_worker_stage`
+    itself writes (stage=worker's area, actor=worker's name, is_stage_change),
+    not on the shipment's current stage, so a shipment that has since moved
+    further along -- or even been cancelled -- still shows up here as part
+    of this worker's history.
+    """
+    completed_ids = select(StatusEvent.shipment_id).where(
+        StatusEvent.stage == worker.area.stage,
+        StatusEvent.actor == worker.name,
+        StatusEvent.is_stage_change.is_(True),
+    )
+    stmt = select(Shipment).where(Shipment.id.in_(completed_ids)).order_by(Shipment.updated_at.desc())
     return list(session.execute(stmt).scalars())
 
 
@@ -76,10 +101,12 @@ def upload_worker_document(
     filename: str | None,
     content_type: str | None,
     data: bytes,
+    document_type: DocumentType | None = None,
 ) -> ShipmentDocument:
     _assert_shipment_in_worker_queue(worker, shipment)
     return upload_document(
-        session, shipment, filename=filename, content_type=content_type, data=data, actor=worker.name
+        session, shipment, filename=filename, content_type=content_type, data=data,
+        actor=worker.name, document_type=document_type,
     )
 
 

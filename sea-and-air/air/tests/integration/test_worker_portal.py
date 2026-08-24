@@ -2,7 +2,7 @@ from datetime import date
 
 from models.enums import EventSource, ShipmentStage
 from services.quotes import accept_quote, generate_quote
-from services.transitions import advance_stage
+from services.transitions import advance_stage, cancel_shipment, correct_stage
 from factories import make_area, make_customer, make_inquiry, make_worker, simple_rate_card
 
 TODAY = date(2026, 6, 1)
@@ -57,6 +57,93 @@ def test_queue_shows_only_shipments_at_the_preceding_stage(client, db_session):
     assert not_ready.id not in ids
 
 
+def test_queue_includes_a_shipment_with_no_job_number(client, db_session):
+    """Regression test: a shipment that reached job_opening (or beyond) via
+    correct_stage rather than accept_quote has job_number=None. The queue
+    endpoint must still render it instead of 500ing on WorkerQueueItem
+    serialization."""
+    airway_bill_area = make_area(db_session, ShipmentStage.AIRWAY_BILL)
+    make_worker(db_session, airway_bill_area, username="ali.airwaybill")
+
+    customer = make_customer(db_session)
+    inquiry = make_inquiry(db_session, customer)
+    shipment = inquiry.shipment
+    correct_stage(db_session, shipment, ShipmentStage.JOB_OPENING, actor="ops", reason="Skip straight to job opening")
+    db_session.commit()
+
+    assert shipment.job_number is None
+
+    token = _login(client, "ali.airwaybill")
+    r = client.get("/worker/queue", headers=_auth_headers(token))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert any(item["id"] == shipment.id for item in body)
+    assert next(item for item in body if item["id"] == shipment.id)["job_number"] is None
+
+
+def test_queue_excludes_cancelled_shipments(client, db_session):
+    airway_bill_area = make_area(db_session, ShipmentStage.AIRWAY_BILL)
+    make_worker(db_session, airway_bill_area, username="ali.airwaybill2")
+
+    ready = _accepted_shipment(db_session)
+    cancelled = _accepted_shipment(db_session)
+    cancel_shipment(db_session, cancelled, reason="Order cancelled", actor="ops")
+    db_session.commit()
+
+    token = _login(client, "ali.airwaybill2")
+    r = client.get("/worker/queue", headers=_auth_headers(token))
+    assert r.status_code == 200, r.text
+    ids = [item["id"] for item in r.json()]
+    assert ready.id in ids
+    assert cancelled.id not in ids
+
+
+def test_completed_lists_shipments_this_worker_has_advanced(client, db_session):
+    airway_bill_area = make_area(db_session, ShipmentStage.AIRWAY_BILL)
+    make_worker(db_session, airway_bill_area, username="ali.airwaybill3")
+
+    completed = _accepted_shipment(db_session)
+    advance_stage(db_session, completed, ShipmentStage.AIRWAY_BILL, actor="ops", note=None, source=EventSource.MANUAL)
+    still_waiting = _accepted_shipment(db_session)
+    db_session.commit()
+
+    token = _login(client, "ali.airwaybill3")
+    r = client.get("/worker/completed", headers=_auth_headers(token))
+    assert r.status_code == 200, r.text
+    ids = [item["id"] for item in r.json()]
+    assert completed.id not in ids  # advanced by "ops" directly, not by this worker
+    assert still_waiting.id not in ids
+
+    r = client.post(f"/worker/shipments/{still_waiting.id}/complete", json={}, headers=_auth_headers(token))
+    assert r.status_code == 200, r.text
+
+    r = client.get("/worker/completed", headers=_auth_headers(token))
+    assert still_waiting.id in [item["id"] for item in r.json()]
+    r = client.get("/worker/queue", headers=_auth_headers(token))
+    assert still_waiting.id not in [item["id"] for item in r.json()]
+
+
+def test_completed_requires_authentication(client):
+    r = client.get("/worker/completed")
+    assert r.status_code == 401
+
+
+def test_worker_cannot_advance_a_held_shipment(client, db_session):
+    from services.transitions import set_hold
+
+    airway_bill_area = make_area(db_session, ShipmentStage.AIRWAY_BILL)
+    make_worker(db_session, airway_bill_area, name="Ayesha Raza", username="ayesha.held")
+
+    shipment = _accepted_shipment(db_session)
+    set_hold(db_session, shipment, on_hold=True, reason="Missing document", actor="ops")
+    db_session.commit()
+    shipment_id = shipment.id
+
+    token = _login(client, "ayesha.held")
+    r = client.post(f"/worker/shipments/{shipment_id}/complete", json={}, headers=_auth_headers(token))
+    assert r.status_code == 409
+
+
 def test_queue_requires_authentication(client):
     r = client.get("/worker/queue")
     assert r.status_code == 401
@@ -83,7 +170,7 @@ def test_two_workers_in_the_same_area_see_the_same_queue(client, db_session):
     assert shipment.id in ids2
 
 
-def test_complete_stage_succeeds_when_shipment_is_ready(client, db_session):
+def test_complete_stage_succeeds_when_shipment_is_ready(client, db_session, ops_headers):
     airway_bill_area = make_area(db_session, ShipmentStage.AIRWAY_BILL)
     make_worker(db_session, airway_bill_area, name="Ayesha Raza", username="ayesha.airwaybill")
 
@@ -99,7 +186,7 @@ def test_complete_stage_succeeds_when_shipment_is_ready(client, db_session):
     )
     assert r.status_code == 200, r.text
 
-    check = client.get(f"/shipments/{shipment_id}")
+    check = client.get(f"/shipments/{shipment_id}", headers=ops_headers)
     assert check.json()["stage"] == "airway_bill"
     last_event = check.json()["status_events"][-1]
     assert last_event["actor"] == "Ayesha Raza"
@@ -107,7 +194,7 @@ def test_complete_stage_succeeds_when_shipment_is_ready(client, db_session):
     assert last_event["note"] == "Airway bill filed and verified"
 
 
-def test_complete_stage_rejected_when_shipment_not_ready(client, db_session):
+def test_complete_stage_rejected_when_shipment_not_ready(client, db_session, ops_headers):
     # Worker is in Customs Clearance, but the shipment is still at
     # job_opening -- seven stages away.
     customs_area = make_area(db_session, ShipmentStage.CUSTOMS_CLEARANCE)
@@ -121,7 +208,7 @@ def test_complete_stage_rejected_when_shipment_not_ready(client, db_session):
     r = client.post(f"/worker/shipments/{shipment_id}/complete", json={}, headers=_auth_headers(token))
     assert r.status_code == 409
 
-    check = client.get(f"/shipments/{shipment_id}")
+    check = client.get(f"/shipments/{shipment_id}", headers=ops_headers)
     assert check.json()["stage"] == "job_opening", "shipment must not have been mutated"
 
 
@@ -147,7 +234,7 @@ def test_inactive_worker_cannot_use_existing_token_flows(client, db_session):
 VALID_PDF = b"%PDF-1.4\n%mock pdf content for tests\n%%EOF"
 
 
-def test_worker_can_upload_document_for_shipment_in_their_queue(client, db_session):
+def test_worker_can_upload_document_for_shipment_in_their_queue(client, db_session, ops_headers):
     airway_bill_area = make_area(db_session, ShipmentStage.AIRWAY_BILL)
     make_worker(db_session, airway_bill_area, name="Ayesha Raza", username="ayesha.airwaybill")
 
@@ -170,7 +257,7 @@ def test_worker_can_upload_document_for_shipment_in_their_queue(client, db_sessi
     assert len(r.json()) == 1
 
     # Same document is visible on the ops side too -- one shared table.
-    r = client.get(f"/shipments/{shipment_id}/documents")
+    r = client.get(f"/shipments/{shipment_id}/documents", headers=ops_headers)
     assert r.status_code == 200, r.text
     assert len(r.json()) == 1
 

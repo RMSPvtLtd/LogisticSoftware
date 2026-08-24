@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from config import get_settings
 from models.shipment import JobNumberCounter, Shipment
+from utils.errors import NotFound, ShipmentHasInvoice
 
 
 def _lock_counter_row(session: Session, year: int) -> JobNumberCounter | None:
@@ -39,6 +40,35 @@ def allocate_job_number(session: Session, year: int) -> str:
 
     sequence = str(counter.last_value).zfill(settings.job_number_padding)
     return f"{settings.job_number_prefix}-{year}-{sequence}"
+
+
+def delete_shipment(session: Session, shipment_id: int) -> None:
+    """Permanently removes a shipment and everything created solely for it
+    (references, status events, documents, and every quote revision on its
+    inquiry) -- for clearing out test/junk data, not a business operation.
+    Real, in-progress shipments should be cancelled (`cancel_shipment`)
+    instead, which keeps the audit trail; this erases it.
+
+    Refuses outright if any quote on the inquiry has ever had an invoice
+    (any status) -- an invoice is a financial record and must never
+    disappear as a side effect of deleting the shipment it came from.
+    """
+    shipment = session.get(Shipment, shipment_id)
+    if shipment is None:
+        raise NotFound(f"Shipment {shipment_id} not found")
+
+    inquiry = shipment.inquiry
+    quotes = list(inquiry.quotes)
+    if any(quote.invoices for quote in quotes):
+        raise ShipmentHasInvoice(
+            f"Shipment {shipment_id} has an invoice on one of its quotes and cannot be deleted; cancel it instead"
+        )
+
+    session.delete(shipment)
+    for quote in quotes:
+        session.delete(quote)
+    session.delete(inquiry)
+    session.flush()
 
 
 def set_routing(

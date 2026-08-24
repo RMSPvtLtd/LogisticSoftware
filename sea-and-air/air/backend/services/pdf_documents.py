@@ -18,11 +18,21 @@ via the "Create Invoice from Quote" company selector) -- a quote PDF always
 prints under the default Company. A quote's carrier/voyage-flight/job number
 are simply blank until the shipment is booked, which is normal (a quote can
 be generated long before booking).
+
+SECURITY: reportlab's `Paragraph` parses a mini-HTML dialect (`<b>`, `<br/>`,
+`<font>`, ...), so every value that originates from user input MUST be
+passed through `_esc` before being placed in one. Two things go wrong
+otherwise: a name containing `<b>` silently injects formatting into a
+financial document, and a name containing a bare `<` raises and makes the
+document permanently un-renderable -- which for an invoice is unrecoverable,
+since its snapshot is immutable by design. Only literal markup written in
+this module is left unescaped.
 """
 
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from html import escape
 from io import BytesIO
 
 from num2words import num2words
@@ -78,6 +88,21 @@ class _DocumentData:
     remarks: str | None = None
 
 
+def _esc(value: object) -> str:
+    """Escapes a value for safe inclusion in a reportlab `Paragraph`.
+
+    `Paragraph` consumes a mini-HTML dialect, so `<` and `&` are markup to
+    it. Escaping them turns any user-supplied string back into literal text:
+    it neither injects formatting nor raises, which matters because an
+    invoice's snapshot is immutable -- an unescaped `<` would brick that
+    invoice's PDF permanently. `None` renders as an empty string so callers
+    don't have to special-case optional fields.
+    """
+    if value is None:
+        return ""
+    return escape(str(value), quote=False)
+
+
 def _default_company(session: Session) -> Company:
     companies = list_companies(session)
     default = next((c for c in companies if c.is_default), companies[0] if companies else None)
@@ -96,7 +121,7 @@ def _quote_to_document_data(session: Session, quote: Quote) -> _DocumentData:
 
     return _DocumentData(
         doc_type="QUOTATION",
-        doc_number=f"Q-{quote.id}",
+        doc_number=f"Q-{quote.root_quote_id or quote.id} Rev {quote.revision_number}",
         doc_date=quote.created_at.date(),
         currency=quote.currency,
         company=_default_company(session),
@@ -201,30 +226,32 @@ def _build_pdf(data: _DocumentData) -> bytes:
 
     # --- letterhead ---
     company = data.company
-    company_lines = [company.address]
+    company_lines = [_esc(company.address)]
     if company.phone:
-        company_lines.append(f"Tel: {company.phone}")
+        company_lines.append(f"Tel: {_esc(company.phone)}")
     if company.email:
-        company_lines.append(f"Email: {company.email}")
+        company_lines.append(f"Email: {_esc(company.email)}")
     if company.website:
-        company_lines.append(company.website)
-    story.append(Paragraph(company.name, company_name_style))
+        company_lines.append(_esc(company.website))
+    story.append(Paragraph(_esc(company.name), company_name_style))
     story.append(Paragraph("LOGISTICS &amp; SUPPLY CHAIN MANAGEMENT", small_style))
+    # The <br/> separators are this module's own markup, so they are joined
+    # after each individual line has been escaped.
     story.append(Paragraph("<br/>".join(company_lines), small_style))
     story.append(Spacer(1, 6))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.black))
-    story.append(Paragraph(data.doc_type, title_style))
+    story.append(Paragraph(_esc(data.doc_type), title_style))
 
     # --- customer / supplier / metadata ---
-    customer_block = [Paragraph("CUSTOMER", label_style), Paragraph(data.customer_name, value_style)]
+    customer_block = [Paragraph("CUSTOMER", label_style), Paragraph(_esc(data.customer_name), value_style)]
     if data.customer_address:
-        customer_block.append(Paragraph(data.customer_address, value_style))
+        customer_block.append(Paragraph(_esc(data.customer_address), value_style))
     if data.supplier_name:
         customer_block.append(Spacer(1, 6))
         customer_block.append(Paragraph("SUPPLIER", label_style))
-        customer_block.append(Paragraph(data.supplier_name, value_style))
+        customer_block.append(Paragraph(_esc(data.supplier_name), value_style))
         if data.supplier_address:
-            customer_block.append(Paragraph(data.supplier_address, value_style))
+            customer_block.append(Paragraph(_esc(data.supplier_address), value_style))
 
     meta_rows = [
         [f"{data.doc_type.title()} No:", data.doc_number],
@@ -269,7 +296,13 @@ def _build_pdf(data: _DocumentData) -> bytes:
         pair = particulars[i:i + 2]
         row = []
         for label, value in pair:
-            row.append(Paragraph(f"<font color='grey' size=8>{label}</font><br/>{value}", value_style))
+            # `value` includes shipment references, HS codes and carrier
+            # names -- all ops- or customer-supplied.
+            row.append(
+                Paragraph(
+                    f"<font color='grey' size=8>{_esc(label)}</font><br/>{_esc(value)}", value_style
+                )
+            )
         if len(pair) == 1:
             row.append("")
         rows.append(row)
@@ -318,13 +351,13 @@ def _build_pdf(data: _DocumentData) -> bytes:
     story.append(Spacer(1, 24))
 
     # --- signature ---
-    story.append(Paragraph(f"For, {company.name}", value_style))
+    story.append(Paragraph(f"For, {_esc(company.name)}", value_style))
     story.append(Spacer(1, 18))
     story.append(Paragraph("Authorized Signatory", value_style))
     story.append(Spacer(1, 12))
 
     if data.remarks:
-        story.append(Paragraph(f"<b>Remarks:</b> {data.remarks}", value_style))
+        story.append(Paragraph(f"<b>Remarks:</b> {_esc(data.remarks)}", value_style))
         story.append(Spacer(1, 8))
 
     if data.show_bank_details and company.bank_name:
@@ -345,9 +378,9 @@ def _build_pdf(data: _DocumentData) -> bytes:
 
     footer_bits = []
     if company.tax_id_label and company.tax_id:
-        footer_bits.append(f"{company.tax_id_label}: {company.tax_id}")
+        footer_bits.append(f"{_esc(company.tax_id_label)}: {_esc(company.tax_id)}")
     if company.company_reg_no:
-        footer_bits.append(f"Company Reg No: {company.company_reg_no}")
+        footer_bits.append(f"Company Reg No: {_esc(company.company_reg_no)}")
     if footer_bits:
         story.append(HRFlowable(width="100%", thickness=0.5, color=colors.grey))
         story.append(Spacer(1, 4))

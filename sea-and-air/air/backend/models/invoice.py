@@ -1,7 +1,7 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, ForeignKey, Numeric, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Numeric, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db import Base
@@ -18,18 +18,36 @@ class Invoice(TimestampMixin, Base):
     Quote/Inquiry/Shipment/Customer. This is deliberate: once an invoice is
     issued, editing the quote, the customer's address, or the shipment's
     routing afterward must never retroactively change a historical invoice.
-    `quote_id` is still kept (UNIQUE) for traceability and to make a second
-    invoice from the same quote impossible at the database level.
+
+    `quote_id` is NOT plainly unique -- a cancelled invoice can be replaced by
+    a new one for the same quote (`replaces_invoice_id`), so more than one
+    Invoice row can share a quote_id over time. What's actually enforced at
+    the database level is "at most one *active* (non-cancelled) invoice per
+    quote", via the partial unique index below -- not by application logic
+    alone, and not just by `Quote.active_invoice`'s in-Python filtering.
     """
 
     __tablename__ = "invoice"
+    __table_args__ = (
+        Index(
+            "uq_invoice_quote_id_active",
+            "quote_id",
+            unique=True,
+            postgresql_where=text("status <> 'CANCELLED'"),
+            sqlite_where=text("status <> 'CANCELLED'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     invoice_number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
-    quote_id: Mapped[int] = mapped_column(ForeignKey("quote.id"), nullable=False, unique=True)
+    quote_id: Mapped[int] = mapped_column(ForeignKey("quote.id"), nullable=False, index=True)
     shipment_id: Mapped[int] = mapped_column(ForeignKey("shipment.id"), nullable=False, index=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customer.id"), nullable=False, index=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), nullable=False)
+    # Set only when this invoice was created via services.invoices.cancel_invoice
+    # + a follow-up create_invoice_from_quote(replaces_invoice_id=...) -- the
+    # cancelled invoice this one corrects, if any.
+    replaces_invoice_id: Mapped[int | None] = mapped_column(ForeignKey("invoice.id"), index=True)
 
     status: Mapped[InvoiceStatus] = mapped_column(
         portable_enum(InvoiceStatus), nullable=False, default=InvoiceStatus.ISSUED
@@ -41,6 +59,17 @@ class Invoice(TimestampMixin, Base):
     tax_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
     discount_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+
+    # --- cancellation -- set only by services.invoices.cancel_invoice ---
+    cancelled_reason: Mapped[str | None] = mapped_column(Text)
+    cancelled_by: Mapped[str | None] = mapped_column(String(120))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # --- payment-ready, not wired to any endpoint or UI yet (see plan) ---
+    payment_date: Mapped[date | None] = mapped_column(Date)
+    amount_paid: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    payment_method: Mapped[str | None] = mapped_column(String(60))
+    payment_reference: Mapped[str | None] = mapped_column(String(120))
 
     # --- everything below is a snapshot, copied once at creation time ---
     customer_name_snapshot: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -64,11 +93,12 @@ class Invoice(TimestampMixin, Base):
     references_snapshot: Mapped[str | None] = mapped_column(Text)
     remarks: Mapped[str | None] = mapped_column(Text)
 
-    quote: Mapped["Quote"] = relationship(back_populates="invoice")  # noqa: F821
+    quote: Mapped["Quote"] = relationship(back_populates="invoices")  # noqa: F821
     company: Mapped["Company"] = relationship()  # noqa: F821
     line_items: Mapped[list["InvoiceLineItem"]] = relationship(
         back_populates="invoice", cascade="all, delete-orphan", order_by="InvoiceLineItem.id"
     )
+    replaces_invoice: Mapped["Invoice | None"] = relationship(remote_side=[id], uselist=False)
 
 
 class InvoiceLineItem(Base):

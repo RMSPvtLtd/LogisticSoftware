@@ -72,7 +72,7 @@ def test_invalid_stage_from_adapter_does_not_mutate_shipment(db_session):
         ingest_adapter_update(db_session, shipment, adapter, "REF2")
 
     assert shipment.stage == ShipmentStage.JOB_OPENING
-    assert len(shipment.status_events) == 3  # inquiry, quotation, job_opening -- no new event added
+    assert len(shipment.status_events) == 4  # inquiry, quotation, job_opening, accepted -- no new event added
 
 
 def test_backwards_stage_from_adapter_does_not_mutate_shipment(db_session):

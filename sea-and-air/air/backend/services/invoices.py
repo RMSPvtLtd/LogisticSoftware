@@ -6,21 +6,32 @@ exactly). `create_invoice_from_quote` is the only writer of `Invoice` and
 customer is snapshotted at that moment and never re-read from those tables
 again, so editing any of them afterward can't retroactively change a
 historical invoice (see `models.invoice.Invoice`'s docstring).
+
+`cancel_invoice` never edits a financial field -- it only ever flips status
+and records who/when/why. A cancelled invoice's quote_id is freed up by the
+partial unique index on `invoice` (active invoices only), which is what lets
+`create_invoice_from_quote` issue a replacement for the same quote afterward.
+
+Every audit note this module writes names the concrete invoice_number
+involved (never just "an invoice") -- a shipment can accumulate more than
+one Invoice row over its life (original + replacement), so a generic note
+would make the audit trail ambiguous exactly where it matters most.
 """
 
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from config import get_settings
-from utils.errors import InvalidQuoteState, NotFound
-from models.enums import QuoteStatus
+from utils.errors import InvalidCancellation, InvalidQuoteState, NotFound
+from models.enums import EventSource, InvoiceStatus, QuoteStatus
 from models.invoice import Invoice, InvoiceLineItem, InvoiceNumberCounter
 from models.quote import Quote
 from services.companies import get_company
 from services.pricing import compute_chargeable_weight
+from services.transitions import record_note
 
 
 def _lock_counter_row(session: Session, year: int) -> InvoiceNumberCounter | None:
@@ -46,7 +57,12 @@ def allocate_invoice_number(session: Session, year: int) -> str:
 
 
 def create_invoice_from_quote(
-    session: Session, quote_id: int, *, company_id: int, today: date | None = None
+    session: Session,
+    quote_id: int,
+    *,
+    company_id: int,
+    replaces_invoice_id: int | None = None,
+    today: date | None = None,
 ) -> Invoice:
     today = today or date.today()
     settings = get_settings()
@@ -56,11 +72,23 @@ def create_invoice_from_quote(
         raise NotFound(f"Quote {quote_id} not found")
     if quote.status != QuoteStatus.ACCEPTED:
         raise InvalidQuoteState(f"Quote {quote.id} must be accepted before an invoice can be created (status={quote.status.value})")
-    if quote.invoice is not None:
-        # Also enforced at the database level by invoice.quote_id's UNIQUE
-        # constraint -- this check just gives a clean, specific error instead
-        # of a generic integrity-conflict one on the (rare) race.
-        raise InvalidQuoteState(f"Quote {quote.id} already has an invoice ({quote.invoice.invoice_number})")
+    active = quote.active_invoice
+    if active is not None:
+        # Also enforced at the database level by invoice's partial unique
+        # index (active invoices only) -- this check just gives a clean,
+        # specific error instead of a generic integrity-conflict one on the
+        # (rare) race.
+        raise InvalidQuoteState(f"Quote {quote.id} already has an active invoice ({active.invoice_number})")
+
+    replaced: Invoice | None = None
+    if replaces_invoice_id is not None:
+        replaced = session.get(Invoice, replaces_invoice_id)
+        if replaced is None or replaced.quote_id != quote.id:
+            raise NotFound(f"Invoice {replaces_invoice_id} not found on quote {quote.id}")
+        if replaced.status != InvoiceStatus.CANCELLED:
+            raise InvalidQuoteState(
+                f"Invoice {replaced.invoice_number} must be cancelled before it can be replaced"
+            )
 
     shipment = quote.shipment
     if shipment is None:
@@ -77,12 +105,13 @@ def create_invoice_from_quote(
     invoice = Invoice(
         invoice_number=allocate_invoice_number(session, today.year),
         quote=quote,  # sets quote_id via the relationship (not the raw FK)
-        # so quote.invoice is kept in sync at the Python object level too --
+        # so quote.invoices is kept in sync at the Python object level too --
         # a plain quote_id=quote.id wouldn't populate the back_populates side,
-        # leaving a stale quote.invoice=None for the rest of this session.
+        # leaving a stale quote.invoices list for the rest of this session.
         shipment_id=shipment.id,
         customer_id=customer.id,
         company_id=company.id,
+        replaces_invoice_id=replaced.id if replaced else None,
         issued_date=today,
         currency=quote.currency,
         subtotal=quote.subtotal,
@@ -123,6 +152,41 @@ def create_invoice_from_quote(
             )
         )
 
+    session.flush()
+
+    note = f"Invoice {invoice.invoice_number} created from quote {quote.id}"
+    if replaced is not None:
+        note += f", replacing {replaced.invoice_number}"
+    record_note(session, shipment, actor="system", note=note + ".", source=EventSource.SYSTEM, is_internal=True)
+    session.flush()
+    return invoice
+
+
+def cancel_invoice(session: Session, invoice_id: int, *, reason: str, actor: str) -> Invoice:
+    """Controlled cancellation, never a delete and never a financial edit --
+    every snapshot/line-item field is left exactly as it was, so a
+    previously-downloaded PDF's content is unaffected. Only ISSUED invoices
+    can be cancelled (not already-cancelled, not some future PAID state).
+    """
+    if not reason or not reason.strip():
+        raise InvalidCancellation("A cancellation reason is required")
+
+    invoice = get_invoice(session, invoice_id)
+    if invoice.status != InvoiceStatus.ISSUED:
+        raise InvalidCancellation(f"Invoice {invoice.invoice_number} cannot be cancelled from status {invoice.status.value}")
+
+    invoice.status = InvoiceStatus.CANCELLED
+    invoice.cancelled_reason = reason
+    invoice.cancelled_by = actor
+    invoice.cancelled_at = datetime.now(timezone.utc)
+    session.flush()
+
+    shipment = invoice.quote.shipment if invoice.quote else None
+    if shipment is not None:
+        record_note(
+            session, shipment, actor=actor,
+            note=f"Invoice {invoice.invoice_number} cancelled: {reason}", source=EventSource.SYSTEM, is_internal=True,
+        )
     session.flush()
     return invoice
 

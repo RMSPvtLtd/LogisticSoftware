@@ -41,6 +41,7 @@ from models.enums import (  # noqa: E402
     UnitOfMeasure,
     next_stage,
 )
+from config import get_settings  # noqa: E402
 from schemas.inquiries import InquiryCreate  # noqa: E402
 from utils.security import hash_password  # noqa: E402
 from services.companies import list_companies  # noqa: E402
@@ -156,6 +157,21 @@ def _seed_companies(session: Session) -> None:
     )
 
 
+def _seed_ops_user(session: Session) -> None:
+    """One bootstrap OpsUser, credentials from Settings.ops_admin_username/
+    password (env-overridable) -- never hardcoded here. This is a
+    TEMPORARY DEVELOPMENT CREDENTIAL: re-running the seed script never
+    resets an existing admin's password (_get_or_create skips rows that
+    already exist), and it must be changed via POST /ops/change-password
+    before any real deployment -- see README.
+    """
+    settings = get_settings()
+    _get_or_create(
+        session, m.OpsUser, {"username": settings.ops_admin_username},
+        {"name": "Admin", "password_hash": hash_password(settings.ops_admin_password)},
+    )
+
+
 def _seed_rate_card(session: Session) -> m.RateCard:
     rate_card, created = _get_or_create(
         session,
@@ -240,6 +256,7 @@ def _walk_to(session: Session, shipment: m.Shipment, target: ShipmentStage, acto
 
 
 def run(session: Session) -> None:
+    _seed_ops_user(session)
     _seed_companies(session)
     _seed_rate_card(session)
     areas = _seed_areas(session)
@@ -308,7 +325,7 @@ def run(session: Session) -> None:
         )
         session.flush()
 
-    if quote_delivered.invoice is None:
+    if quote_delivered.active_invoice is None:
         default_company = next(c for c in list_companies(session) if c.is_default)
         create_invoice_from_quote(session, quote_delivered.id, company_id=default_company.id, today=SEED_TODAY)
         session.flush()

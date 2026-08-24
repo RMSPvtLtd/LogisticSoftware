@@ -1,9 +1,10 @@
 import { useParams } from "react-router-dom"
-import { Warning } from "@phosphor-icons/react"
+import { Prohibit, Warning } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { StageChecklist } from "@/components/shared/StageChecklist"
 import { EventTimeline } from "@/components/shared/EventTimeline"
 import { LoadingState, ErrorState } from "@/components/shared/States"
+import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { useAsync } from "@/hooks/useAsync"
 import { useCustomerAuth } from "@/hooks/useCustomerAuth"
@@ -28,11 +29,23 @@ export function CustomerShipmentDetailPage() {
   return (
     <div className="mx-auto max-w-xl space-y-6">
       <PageHeader
-        title={r.job_number ?? `Inquiry #${shipmentId}`}
+        title={
+          <span className="flex flex-wrap items-center gap-2">
+            {r.job_number ?? `Inquiry #${shipmentId}`}
+            {r.is_cancelled && <Badge variant="secondary">Cancelled</Badge>}
+          </span>
+        }
         description={`${r.origin} → ${r.destination} · ${MODE_LABEL[r.mode]}`}
       />
 
-      {r.at_risk && (
+      {r.is_cancelled && (
+        <div className="flex items-start gap-2.5 rounded-xl bg-muted px-4 py-3 text-sm text-muted-foreground">
+          <Prohibit size={18} weight="fill" className="mt-0.5 shrink-0" />
+          <p>{r.cancellation_note ?? "This shipment has been cancelled."}</p>
+        </div>
+      )}
+
+      {!r.is_cancelled && r.at_risk && (
         <div className="flex items-start gap-2.5 rounded-xl bg-status-warning-bg px-4 py-3 text-sm text-status-warning">
           <Warning size={18} weight="fill" className="mt-0.5 shrink-0" />
           <p>

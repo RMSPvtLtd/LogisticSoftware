@@ -1,9 +1,10 @@
 from datetime import date
 
 from models.enums import EventSource, ShipmentStage, next_stage
+from services.invoices import create_invoice_from_quote
 from services.quotes import accept_quote, generate_quote
 from services.transitions import advance_stage
-from factories import make_customer, make_customer_with_portal, make_inquiry, simple_rate_card
+from factories import make_company, make_customer, make_customer_with_portal, make_inquiry, simple_rate_card
 
 TODAY = date(2026, 6, 1)
 
@@ -152,6 +153,51 @@ def test_quotes_are_scoped_to_the_logged_in_customer(client, db_session):
     assert r_detail.status_code == 404
 
 
+def test_invoices_are_scoped_to_the_logged_in_customer(client, db_session):
+    mine = make_customer_with_portal(db_session, username="orient.traders")
+    someone_else = make_customer(db_session, email="other@example.com")
+    company = make_company(db_session)
+
+    my_shipment = _accepted_shipment(db_session, mine)
+    other_shipment = _accepted_shipment(db_session, someone_else)
+    my_invoice = create_invoice_from_quote(db_session, my_shipment.quote_id, company_id=company.id, today=TODAY)
+    other_invoice = create_invoice_from_quote(
+        db_session, other_shipment.quote_id, company_id=company.id, today=TODAY
+    )
+    db_session.commit()
+
+    token = _login(client, "orient.traders")
+    r = client.get("/customer/invoices", headers=_auth_headers(token))
+    assert r.status_code == 200, r.text
+    ids = [i["id"] for i in r.json()]
+    assert my_invoice.id in ids
+    assert other_invoice.id not in ids
+
+    r_own = client.get(f"/customer/invoices/{my_invoice.id}", headers=_auth_headers(token))
+    assert r_own.status_code == 200, r_own.text
+
+    # A customer can never address another customer's invoice by guessing an id.
+    r_other = client.get(f"/customer/invoices/{other_invoice.id}", headers=_auth_headers(token))
+    assert r_other.status_code == 404
+
+
+def test_customer_invoice_detail_never_exposes_supplier_info(client, db_session):
+    mine = make_customer_with_portal(db_session, username="orient.traders")
+    company = make_company(db_session)
+    shipment = _accepted_shipment(
+        db_session, mine, supplier_name="Wolmax International", supplier_address="Karachi, Pakistan"
+    )
+    invoice = create_invoice_from_quote(db_session, shipment.quote_id, company_id=company.id, today=TODAY)
+    db_session.commit()
+
+    token = _login(client, "orient.traders")
+    r = client.get(f"/customer/invoices/{invoice.id}", headers=_auth_headers(token))
+    assert r.status_code == 200, r.text
+    body_text = str(r.json())
+    assert "Wolmax" not in body_text
+    assert "supplier" not in body_text.lower()
+
+
 def test_worker_token_is_rejected_on_customer_routes(client, db_session):
     from utils.security import create_access_token
 
@@ -179,13 +225,14 @@ def test_shipments_requires_authentication(client):
     assert r.status_code == 401
 
 
-def test_ops_can_grant_portal_access_and_customer_can_then_log_in(client, db_session):
+def test_ops_can_grant_portal_access_and_customer_can_then_log_in(client, db_session, ops_headers):
     customer = make_customer(db_session, email="new-portal@example.com")
     db_session.commit()
 
     r = client.post(
         f"/customers/{customer.id}/portal-access",
         json={"username": "new.portal.customer", "password": "Customer123!"},
+        headers=ops_headers,
     )
     assert r.status_code == 200, r.text
     assert r.json()["username"] == "new.portal.customer"
@@ -197,11 +244,11 @@ def test_ops_can_grant_portal_access_and_customer_can_then_log_in(client, db_ses
     assert login.status_code == 200, login.text
 
 
-def test_ops_can_deactivate_portal_access(client, db_session):
+def test_ops_can_deactivate_portal_access(client, db_session, ops_headers):
     customer = make_customer_with_portal(db_session, username="orient.traders")
     db_session.commit()
 
-    r = client.patch(f"/customers/{customer.id}/portal-access", json={"is_active": False})
+    r = client.patch(f"/customers/{customer.id}/portal-access", json={"is_active": False}, headers=ops_headers)
     assert r.status_code == 200, r.text
     assert r.json()["portal_active"] is False
 

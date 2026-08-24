@@ -3,24 +3,27 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from db import get_db
-from utils.dependencies import current_actor
 from utils.errors import NotFound
 from models.enums import EventSource, Priority, ShipmentStage, TransportMode
 from models.inquiry import Inquiry
+from models.ops_user import OpsUser
 from models.shipment import Shipment, ShipmentReference
 from schemas.shipments import (
+    HoldUpdateRequest,
     InvoiceRequest,
     PriorityUpdateRequest,
     ReferenceCreateRequest,
     RiskUpdateRequest,
     RoutingUpdateRequest,
+    ShipmentCancelRequest,
     ShipmentRead,
     StatusCorrectionRequest,
 )
-from services.shipments import set_routing
-from services.transitions import advance_stage, correct_stage, set_priority, set_risk
+from utils.security import get_current_ops_user
+from services.shipments import delete_shipment, set_routing
+from services.transitions import advance_stage, cancel_shipment, correct_stage, set_hold, set_priority, set_risk
 
-router = APIRouter(prefix="/shipments", tags=["shipments"])
+router = APIRouter(prefix="/shipments", tags=["shipments"], dependencies=[Depends(get_current_ops_user)])
 
 # There is deliberately no general ops-facing "advance to next stage"
 # endpoint here. Normal progression belongs to workers, scoped to their area
@@ -61,15 +64,20 @@ def get_shipment(shipment_id: int, db: Session = Depends(get_db)) -> Shipment:
     return _get_shipment(db, shipment_id)
 
 
+@router.delete("/{shipment_id}", status_code=204)
+def delete(shipment_id: int, db: Session = Depends(get_db)) -> None:
+    delete_shipment(db, shipment_id)
+
+
 @router.post("/{shipment_id}/status/correct", response_model=ShipmentRead)
 def correct_status(
     shipment_id: int,
     payload: StatusCorrectionRequest,
-    actor: str = Depends(current_actor),
+    ops_user: OpsUser = Depends(get_current_ops_user),
     db: Session = Depends(get_db),
 ) -> Shipment:
     shipment = _get_shipment(db, shipment_id)
-    correct_stage(db, shipment, payload.stage, actor=actor, reason=payload.reason)
+    correct_stage(db, shipment, payload.stage, actor=ops_user.name, reason=payload.reason)
     return shipment
 
 
@@ -87,11 +95,11 @@ def add_reference(
 def update_risk(
     shipment_id: int,
     payload: RiskUpdateRequest,
-    actor: str = Depends(current_actor),
+    ops_user: OpsUser = Depends(get_current_ops_user),
     db: Session = Depends(get_db),
 ) -> Shipment:
     shipment = _get_shipment(db, shipment_id)
-    set_risk(db, shipment, is_at_risk=payload.is_at_risk, risk_reason=payload.risk_reason, actor=actor)
+    set_risk(db, shipment, is_at_risk=payload.is_at_risk, risk_reason=payload.risk_reason, actor=ops_user.name)
     return shipment
 
 
@@ -99,11 +107,11 @@ def update_risk(
 def update_priority(
     shipment_id: int,
     payload: PriorityUpdateRequest,
-    actor: str = Depends(current_actor),
+    ops_user: OpsUser = Depends(get_current_ops_user),
     db: Session = Depends(get_db),
 ) -> Shipment:
     shipment = _get_shipment(db, shipment_id)
-    set_priority(db, shipment, priority=payload.priority, actor=actor)
+    set_priority(db, shipment, priority=payload.priority, actor=ops_user.name)
     return shipment
 
 
@@ -122,7 +130,7 @@ def update_routing(
 def invoice_shipment(
     shipment_id: int,
     payload: InvoiceRequest,
-    actor: str = Depends(current_actor),
+    ops_user: OpsUser = Depends(get_current_ops_user),
     db: Session = Depends(get_db),
 ) -> Shipment:
     """Ops marks the job invoiced. The only normal (non-correction) forward
@@ -131,6 +139,32 @@ def invoice_shipment(
     shipment = _get_shipment(db, shipment_id)
     advance_stage(
         db, shipment, ShipmentStage.INVOICE_TO_CUSTOMER,
-        actor=actor, note=payload.note, source=EventSource.MANUAL,
+        actor=ops_user.name, note=payload.note, source=EventSource.MANUAL,
     )
+    return shipment
+
+
+@router.post("/{shipment_id}/cancel", response_model=ShipmentRead)
+def cancel(
+    shipment_id: int,
+    payload: ShipmentCancelRequest,
+    ops_user: OpsUser = Depends(get_current_ops_user),
+    db: Session = Depends(get_db),
+) -> Shipment:
+    shipment = _get_shipment(db, shipment_id)
+    cancel_shipment(
+        db, shipment, reason=payload.reason, actor=ops_user.name, customer_note=payload.customer_note
+    )
+    return shipment
+
+
+@router.post("/{shipment_id}/hold", response_model=ShipmentRead)
+def hold(
+    shipment_id: int,
+    payload: HoldUpdateRequest,
+    ops_user: OpsUser = Depends(get_current_ops_user),
+    db: Session = Depends(get_db),
+) -> Shipment:
+    shipment = _get_shipment(db, shipment_id)
+    set_hold(db, shipment, on_hold=payload.on_hold, reason=payload.reason, actor=ops_user.name)
     return shipment

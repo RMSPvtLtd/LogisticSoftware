@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/shared/PageHeader"
 import { StageBadge } from "@/components/shared/StageBadge"
 import { RiskBadge } from "@/components/shared/RiskBadge"
 import { LoadingState, ErrorState, EmptyState } from "@/components/shared/States"
+import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAsync } from "@/hooks/useAsync"
@@ -73,13 +74,14 @@ export function CustomerShipmentsPage() {
                   <TableCell className="whitespace-nowrap">
                     {shipment.origin} → {shipment.destination}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="flex flex-wrap items-center gap-1.5">
                     <StageBadge stage={shipment.stage} />
+                    {shipment.is_cancelled && <Badge variant="secondary">Cancelled</Badge>}
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">
                     {formatDateTime(shipment.updated_at)}
                   </TableCell>
-                  <TableCell>{shipment.is_at_risk && <RiskBadge />}</TableCell>
+                  <TableCell>{!shipment.is_cancelled && shipment.is_at_risk && <RiskBadge />}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

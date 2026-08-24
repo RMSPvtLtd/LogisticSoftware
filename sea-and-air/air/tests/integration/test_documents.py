@@ -104,45 +104,48 @@ def test_get_document_returns_full_row_including_bytes(db_session):
     assert fetched.data == VALID_PDF
 
 
-def test_upload_endpoint_and_list_endpoint(client, db_session):
+def test_upload_endpoint_and_list_endpoint(client, db_session, ops_headers):
     shipment = _accepted_shipment(db_session)
     db_session.commit()
 
     r = client.post(
         f"/shipments/{shipment.id}/documents",
         files={"file": ("airway-bill.pdf", VALID_PDF, "application/pdf")},
+        headers=ops_headers,
     )
     assert r.status_code == 201, r.text
     assert r.json()["filename"] == "airway-bill.pdf"
     assert "data" not in r.json()
 
-    r = client.get(f"/shipments/{shipment.id}/documents")
+    r = client.get(f"/shipments/{shipment.id}/documents", headers=ops_headers)
     assert r.status_code == 200, r.text
     assert len(r.json()) == 1
 
 
-def test_upload_endpoint_rejects_non_pdf(client, db_session):
+def test_upload_endpoint_rejects_non_pdf(client, db_session, ops_headers):
     shipment = _accepted_shipment(db_session)
     db_session.commit()
 
     r = client.post(
         f"/shipments/{shipment.id}/documents",
         files={"file": ("notes.txt", b"hello", "text/plain")},
+        headers=ops_headers,
     )
     assert r.status_code == 422, r.text
 
 
-def test_download_endpoint_returns_pdf_bytes(client, db_session):
+def test_download_endpoint_returns_pdf_bytes(client, db_session, ops_headers):
     shipment = _accepted_shipment(db_session)
     db_session.commit()
 
     upload = client.post(
         f"/shipments/{shipment.id}/documents",
         files={"file": ("airway-bill.pdf", VALID_PDF, "application/pdf")},
+        headers=ops_headers,
     )
     document_id = upload.json()["id"]
 
-    r = client.get(f"/documents/{document_id}")
+    r = client.get(f"/documents/{document_id}", headers=ops_headers)
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/pdf"
     assert r.content == VALID_PDF

@@ -149,3 +149,16 @@ def make_worker(session: Session, area: m.Area, *, password: str = "Worker123!",
     session.add(worker)
     session.flush()
     return worker
+
+
+def make_ops_user(session: Session, *, password: str = "OpsTest123!", **overrides) -> m.OpsUser:
+    defaults = dict(
+        name="Test Ops",
+        username=f"ops-{uuid.uuid4().hex[:10]}",
+        password_hash=hash_password(password),
+    )
+    defaults.update(overrides)
+    ops_user = m.OpsUser(**defaults)
+    session.add(ops_user)
+    session.flush()
+    return ops_user

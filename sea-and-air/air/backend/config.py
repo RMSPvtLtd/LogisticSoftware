@@ -2,6 +2,13 @@
 here as a single named setting, never as a literal inline where it is used.
 Changing a markup, a validity window, or a volumetric factor is an environment
 change, not a code change.
+
+Security-sensitive defaults (JWT signing key, ops bootstrap password) are
+dev-only placeholders. `Settings.assert_production_ready` refuses to let the
+app start with any of them still in place when `ENVIRONMENT=production` --
+failing closed at boot rather than silently running a production deployment
+with a publicly-known signing key, which would let anyone forge a token for
+any account.
 """
 
 from functools import lru_cache
@@ -9,9 +16,23 @@ from decimal import Decimal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Values that are safe for local development and catastrophic in production.
+# Kept as named constants so the check below and the defaults can never drift.
+DEV_JWT_SECRET = "dev-only-insecure-secret-change-me"
+DEV_OPS_PASSWORD = "ChangeMe123!"
+
+
+class InsecureProductionConfig(RuntimeError):
+    """Raised at startup when production is configured with a dev-only secret."""
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    # "production" turns on the startup safety checks below and makes
+    # `secure_cookies`/HSTS behaviour explicit. Anything else is treated as a
+    # development environment.
+    environment: str = "development"
 
     # PostgreSQL in production. Tests override this with a file-backed SQLite URL
     # via the get_settings dependency override in tests/conftest.py — nothing in
@@ -46,19 +67,62 @@ class Settings(BaseSettings):
     # Browser origins allowed to call the API.
     cors_origins: str = "http://localhost:5173"
 
-    # Actor name recorded on manually-triggered ops status events. The ops
-    # side has no login (current_actor dependency); worker accounts (below)
-    # are the only part of the app with real authentication.
-    default_actor: str = "ops"
-
-    # Signs worker login tokens (utils.security). Override in production --
-    # this default is only safe for local development.
-    jwt_secret_key: str = "dev-only-insecure-secret-change-me"
+    # Signs worker/customer/ops login tokens (utils.security). Override in
+    # production -- this default is only safe for local development, and
+    # `assert_production_ready` refuses to boot production with it.
+    jwt_secret_key: str = DEV_JWT_SECRET
     jwt_expiry_minutes: int = 12 * 60
+
+    # Failed-login throttling (utils.rate_limit). Applied per
+    # username+client-IP so one attacker can't lock out a real user by
+    # guessing at their account, and one IP can't spray many accounts.
+    login_max_attempts: int = 10
+    login_lockout_seconds: int = 900
+
+    # Bootstrap credential for the single seeded OpsUser (database/seeds/seed.py).
+    # This is a TEMPORARY DEVELOPMENT CREDENTIAL, not a permanent one: it is only
+    # ever used to create the account once (re-seeding never resets an existing
+    # admin's password -- see _get_or_create), and it must be changed via
+    # POST /ops/change-password before any real deployment. Override both via
+    # the environment for anything beyond local dev.
+    ops_admin_username: str = "admin"
+    ops_admin_password: str = DEV_OPS_PASSWORD
 
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment.strip().lower() == "production"
+
+    def assert_production_ready(self) -> None:
+        """Fail closed at startup rather than serve traffic with a known
+        secret. A publicly-known `jwt_secret_key` is a full authentication
+        bypass -- anyone can mint a valid token for any ops user, worker, or
+        customer -- so this is a hard boot failure, not a warning.
+        """
+        if not self.is_production:
+            return
+
+        problems: list[str] = []
+        if self.jwt_secret_key == DEV_JWT_SECRET:
+            problems.append("JWT_SECRET_KEY is still the public development default")
+        if len(self.jwt_secret_key) < 32:
+            problems.append("JWT_SECRET_KEY is shorter than 32 characters")
+        if self.ops_admin_password == DEV_OPS_PASSWORD:
+            problems.append("OPS_ADMIN_PASSWORD is still the public development default")
+        if not self.cors_origin_list:
+            problems.append("CORS_ORIGINS is empty")
+        if any(origin == "*" for origin in self.cors_origin_list):
+            problems.append("CORS_ORIGINS contains a '*' wildcard, which is unsafe for an authenticated API")
+
+        if problems:
+            raise InsecureProductionConfig(
+                "Refusing to start in production with insecure configuration: "
+                + "; ".join(problems)
+                + ". Set these via the environment before deploying."
+            )
 
 
 @lru_cache

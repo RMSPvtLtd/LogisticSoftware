@@ -1,13 +1,16 @@
-import { Navigate, Route, Routes } from "react-router-dom"
+import { Navigate, Outlet, Route, Routes } from "react-router-dom"
 import { Toaster } from "@/components/ui/sonner"
 import { StagesProvider } from "@/hooks/useStages"
+import { OpsAuthProvider } from "@/hooks/useOpsAuth"
 import { WorkerAuthProvider } from "@/hooks/useWorkerAuth"
 import { CustomerAuthProvider } from "@/hooks/useCustomerAuth"
 import { OpsShell } from "@/components/layout/OpsShell"
 import { PublicShell } from "@/components/layout/PublicShell"
 import { CustomerShell } from "@/components/layout/CustomerShell"
+import { ProtectedOpsRoute } from "@/components/shared/ProtectedOpsRoute"
 import { ProtectedWorkerRoute } from "@/components/shared/ProtectedWorkerRoute"
 import { ProtectedCustomerRoute } from "@/components/shared/ProtectedCustomerRoute"
+import { OpsLoginPage } from "@/pages/OpsLoginPage"
 import { ShipmentListPage } from "@/pages/ShipmentListPage"
 import { ShipmentDetailPage } from "@/pages/ShipmentDetailPage"
 import { QuoteFlowPage } from "@/pages/QuoteFlowPage"
@@ -18,11 +21,26 @@ import { WorkerLoginPage } from "@/pages/WorkerLoginPage"
 import { WorkerQueuePage } from "@/pages/WorkerQueuePage"
 import { WorkersAdminPage } from "@/pages/WorkersAdminPage"
 import { CustomersAdminPage } from "@/pages/CustomersAdminPage"
+import { RateCardsAdminPage } from "@/pages/RateCardsAdminPage"
 import { CustomerLoginPage } from "@/pages/CustomerLoginPage"
 import { CustomerShipmentsPage } from "@/pages/CustomerShipmentsPage"
 import { CustomerShipmentDetailPage } from "@/pages/CustomerShipmentDetailPage"
 import { CustomerQuotesPage } from "@/pages/CustomerQuotesPage"
 import { CustomerQuoteDetailPage } from "@/pages/CustomerQuoteDetailPage"
+import { CustomerInvoicesPage } from "@/pages/CustomerInvoicesPage"
+import { CustomerInvoiceDetailPage } from "@/pages/CustomerInvoiceDetailPage"
+
+// Wraps just the ops-facing routes in OpsAuthProvider -- a path-less layout
+// route (same pattern OpsShell/PublicShell already use below) so it doesn't
+// need a `/*` wildcard that would otherwise swallow the sibling /track,
+// /worker/*, and /customer/* routes matched later in this tree.
+function OpsAuthLayout() {
+  return (
+    <OpsAuthProvider>
+      <Outlet />
+    </OpsAuthProvider>
+  )
+}
 
 function App() {
   return (
@@ -30,15 +48,25 @@ function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/shipments" replace />} />
 
-        <Route element={<OpsShell />}>
-          <Route path="/shipments" element={<ShipmentListPage />} />
-          <Route path="/shipments/:id" element={<ShipmentDetailPage />} />
-          <Route path="/quotes/new" element={<QuoteFlowPage />} />
-          <Route path="/quotes/:id" element={<QuoteFlowPage />} />
-          <Route path="/invoices" element={<InvoiceListPage />} />
-          <Route path="/invoices/:id" element={<InvoicePage />} />
-          <Route path="/workers" element={<WorkersAdminPage />} />
-          <Route path="/customers" element={<CustomersAdminPage />} />
+        <Route element={<OpsAuthLayout />}>
+          <Route path="/login" element={<OpsLoginPage />} />
+          <Route
+            element={
+              <ProtectedOpsRoute>
+                <OpsShell />
+              </ProtectedOpsRoute>
+            }
+          >
+            <Route path="/shipments" element={<ShipmentListPage />} />
+            <Route path="/shipments/:id" element={<ShipmentDetailPage />} />
+            <Route path="/quotes/new" element={<QuoteFlowPage />} />
+            <Route path="/quotes/:id" element={<QuoteFlowPage />} />
+            <Route path="/invoices" element={<InvoiceListPage />} />
+            <Route path="/invoices/:id" element={<InvoicePage />} />
+            <Route path="/workers" element={<WorkersAdminPage />} />
+            <Route path="/customers" element={<CustomersAdminPage />} />
+            <Route path="/rate-cards" element={<RateCardsAdminPage />} />
+          </Route>
         </Route>
 
         <Route element={<PublicShell />}>
@@ -85,6 +113,8 @@ function App() {
                   <Route path="shipments/:id" element={<CustomerShipmentDetailPage />} />
                   <Route path="quotes" element={<CustomerQuotesPage />} />
                   <Route path="quotes/:id" element={<CustomerQuoteDetailPage />} />
+                  <Route path="invoices" element={<CustomerInvoicesPage />} />
+                  <Route path="invoices/:id" element={<CustomerInvoiceDetailPage />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/customer/login" replace />} />
               </Routes>

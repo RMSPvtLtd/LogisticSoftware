@@ -1,13 +1,13 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db import Base
 from models._mixins import TimestampMixin
 from models._types import portable_enum
-from models.enums import ChargeKind, QuoteStatus
+from models.enums import ChargeKind, InvoiceStatus, QuoteStatus
 
 
 class Quote(TimestampMixin, Base):
@@ -36,12 +36,28 @@ class Quote(TimestampMixin, Base):
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
     valid_until: Mapped[date] = mapped_column(Date, nullable=False)
 
+    # --- rejection -- set only by services.quotes.reject_quote ---
+    rejected_reason: Mapped[str | None] = mapped_column(Text)
+    rejected_by: Mapped[str | None] = mapped_column(String(120))
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # --- revisioning -- see services.quotes.generate_quote ---
+    # revision_number/root_quote_id together identify a quote's place in its
+    # revision family; root_quote_id is null on the root quote itself (its own
+    # id IS the root). superseded_at is set the moment a later revision is
+    # created for the same inquiry -- a superseded quote is permanently frozen
+    # (see the guards in send_quote/accept_quote/reject_quote/override_line_items/
+    # set_quote_adjustments), never mutated back.
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    root_quote_id: Mapped[int | None] = mapped_column(ForeignKey("quote.id"), index=True)
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     inquiry: Mapped["Inquiry"] = relationship(back_populates="quotes")  # noqa: F821
     line_items: Mapped[list["QuoteLineItem"]] = relationship(
         back_populates="quote", cascade="all, delete-orphan", order_by="QuoteLineItem.id"
     )
     shipment: Mapped["Shipment | None"] = relationship(back_populates="quote", uselist=False)  # noqa: F821
-    invoice: Mapped["Invoice | None"] = relationship(back_populates="quote", uselist=False)  # noqa: F821
+    invoices: Mapped[list["Invoice"]] = relationship(back_populates="quote", order_by="Invoice.id")  # noqa: F821
 
     @property
     def shipment_stage(self) -> "ShipmentStage | None":  # noqa: F821
@@ -53,11 +69,28 @@ class Quote(TimestampMixin, Base):
         return self.shipment.stage if self.shipment else None
 
     @property
+    def is_current(self) -> bool:
+        """False once a later revision has been generated for this inquiry."""
+        return self.superseded_at is None
+
+    @property
+    def active_invoice(self) -> "Invoice | None":
+        """The one non-cancelled invoice for this quote, if any. A quote can
+        accumulate more than one Invoice row over time (an original plus a
+        replacement after cancellation, see services.invoices.cancel_invoice),
+        but at most one is ever active -- enforced at the database level by a
+        partial unique index on (quote_id) WHERE status <> 'cancelled', not
+        just by this property.
+        """
+        return next((inv for inv in self.invoices if inv.status != InvoiceStatus.CANCELLED), None)
+
+    @property
     def invoice_id(self) -> "int | None":
-        """The id of the invoice generated from this quote, if any -- lets
-        the frontend show "Invoice: INV-XXXX" / disable "Create Invoice"
-        without a second request."""
-        return self.invoice.id if self.invoice else None
+        """The id of this quote's active invoice, if any -- lets the frontend
+        show "Invoice: INV-XXXX" / disable "Create Invoice" without a second
+        request."""
+        active = self.active_invoice
+        return active.id if active else None
 
 
 class QuoteLineItem(Base):

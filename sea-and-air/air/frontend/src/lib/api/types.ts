@@ -25,7 +25,7 @@ export type ShipmentStage =
 
 export type TransportMode = "air" | "sea" | "road"
 
-export type QuoteStatus = "draft" | "sent" | "accepted" | "expired"
+export type QuoteStatus = "draft" | "sent" | "accepted" | "expired" | "rejected"
 
 export type EventSource = "manual" | "automated" | "system" | "correction"
 
@@ -41,6 +41,17 @@ export type ReferenceType =
   | "PARTY_REFERENCE"
 
 export type ChargeKind = "freight" | "documentation" | "customs" | "pickup" | "handling" | "other"
+
+export type DocumentType =
+  | "quotation"
+  | "invoice"
+  | "airway_bill"
+  | "gd"
+  | "customs"
+  | "shipment_receipt"
+  | "examination"
+  | "delivery"
+  | "other"
 
 export type ChecklistStatus = "completed" | "current" | "upcoming"
 
@@ -142,6 +153,13 @@ export interface Quote {
   discount_amount: string
   total: string
   valid_until: string
+  revision_number: number
+  root_quote_id: number | null
+  is_current: boolean
+  superseded_at: string | null
+  rejected_reason: string | null
+  rejected_by: string | null
+  rejected_at: string | null
   created_at: string
   updated_at: string
   line_items: QuoteLineItem[]
@@ -187,6 +205,17 @@ export interface Shipment {
   priority: Priority
   carrier: string | null
   voyage_flight_number: string | null
+  is_cancelled: boolean
+  cancelled_reason: string | null
+  customer_cancellation_note: string | null
+  cancelled_by: string | null
+  cancelled_at: string | null
+  is_on_hold: boolean
+  hold_reason: string | null
+  hold_created_by: string | null
+  hold_created_at: string | null
+  hold_removed_by: string | null
+  hold_removed_at: string | null
   created_at: string
   updated_at: string
   references: ShipmentReference[]
@@ -204,6 +233,7 @@ export interface ShipmentDocument {
   id: number
   shipment_id: number
   stage: ShipmentStage
+  document_type: DocumentType
   filename: string
   content_type: string
   size_bytes: number
@@ -238,6 +268,9 @@ export interface TrackingResult {
   status_history: TrackingEvent[]
   references: TrackingReference[]
   at_risk: boolean
+  is_cancelled: boolean
+  cancellation_note: string | null
+  is_on_hold: boolean
 }
 
 // --- sea vertical: container tracking (separate backend, see
@@ -328,7 +361,15 @@ export interface Invoice {
   shipment_id: number
   customer_id: number
   company_id: number
+  replaces_invoice_id: number | null
   status: InvoiceStatus
+  cancelled_reason: string | null
+  cancelled_by: string | null
+  cancelled_at: string | null
+  payment_date: string | null
+  amount_paid: string | null
+  payment_method: string | null
+  payment_reference: string | null
   issued_date: string
   currency: string
   subtotal: string
@@ -388,7 +429,7 @@ export interface LoginResponse {
 
 export interface WorkerQueueItem {
   id: number
-  job_number: string
+  job_number: string | null
   customer_name: string
   origin: string
   destination: string
@@ -412,5 +453,133 @@ export interface CustomerShipmentSummary {
   destination: string
   stage: ShipmentStage
   is_at_risk: boolean
+  is_cancelled: boolean
+  is_on_hold: boolean
   updated_at: string
+}
+
+export interface CustomerInvoiceLineItem {
+  id: number
+  kind: ChargeKind
+  description: string
+  amount: string
+}
+
+export interface CustomerInvoiceSummary {
+  id: number
+  invoice_number: string
+  status: InvoiceStatus
+  issued_date: string
+  currency: string
+  total: string
+}
+
+export interface CustomerInvoiceDetail {
+  id: number
+  invoice_number: string
+  status: InvoiceStatus
+  issued_date: string
+  currency: string
+  subtotal: string
+  markup_amount: string
+  tax_amount: string
+  discount_amount: string
+  total: string
+  origin: string
+  destination: string
+  incoterm: string
+  job_number: string | null
+  line_items: CustomerInvoiceLineItem[]
+}
+
+// --- ops auth ---
+
+export interface OpsUser {
+  id: number
+  name: string
+  username: string
+  is_active: boolean
+}
+
+export interface OpsLoginResponse {
+  access_token: string
+  token_type: string
+  ops_user: OpsUser
+}
+
+export interface ChangePasswordRequest {
+  current_password: string
+  new_password: string
+  confirm_new_password: string
+}
+
+// --- rate cards ---
+
+export type UnitOfMeasure = "per_kg" | "per_cbm" | "flat"
+
+export type ChargeBasis = "flat" | "per_kg" | "percent_of_freight"
+
+export interface RateCardBreak {
+  id: number
+  min_weight: string | null
+  max_weight: string | null
+  min_volume: string | null
+  max_volume: string | null
+  unit: UnitOfMeasure
+  rate: string
+  description: string | null
+}
+
+export interface RateCardBreakInput {
+  min_weight: string | null
+  max_weight: string | null
+  min_volume: string | null
+  max_volume: string | null
+  unit: UnitOfMeasure
+  rate: string
+  description: string | null
+}
+
+export interface RateCardCharge {
+  id: number
+  kind: ChargeKind
+  description: string
+  basis: ChargeBasis
+  amount: string
+}
+
+export interface RateCardChargeInput {
+  kind: ChargeKind
+  description: string
+  basis: ChargeBasis
+  amount: string
+}
+
+export interface RateCard {
+  id: number
+  origin: string
+  destination: string
+  mode: TransportMode
+  carrier: string | null
+  currency: string
+  valid_from: string
+  valid_until: string
+  minimum_charge: string
+  breaks: RateCardBreak[]
+  charges: RateCardCharge[]
+  created_at: string
+  updated_at: string
+}
+
+export interface RateCardInput {
+  origin: string
+  destination: string
+  mode: TransportMode
+  carrier: string | null
+  currency: string
+  valid_from: string
+  valid_until: string
+  minimum_charge: string
+  breaks: RateCardBreakInput[]
+  charges: RateCardChargeInput[]
 }

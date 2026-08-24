@@ -5,16 +5,27 @@ route here that accepts a customer_id from the request, so one customer can
 never address another customer's data by guessing an id.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from db import get_db
-from utils.errors import NotFound
+from utils import rate_limit, security_log
+from utils.errors import NotFound, TooManyAttempts, Unauthorized
 from models.customer import Customer
+from models.invoice import Invoice
 from models.quote import Quote
 from models.shipment import Shipment
 from schemas.auth import LoginRequest
-from schemas.customer_portal import CustomerLoginResponse, CustomerShipmentSummary, shipment_summary
+from schemas.customer_portal import (
+    CustomerInvoiceDetail,
+    CustomerInvoiceSummary,
+    CustomerLoginResponse,
+    CustomerShipmentSummary,
+    customer_invoice_detail,
+    customer_invoice_summary,
+    shipment_summary,
+)
 from schemas.customers import CustomerRead
 from schemas.quotes import QuoteRead
 from schemas.tracking import TrackingResult, from_shipment
@@ -23,10 +34,29 @@ from services.customers import authenticate_customer, customer_quotes, customer_
 
 router = APIRouter(prefix="/customer", tags=["customer-portal"])
 
+SURFACE = "customer"
+
 
 @router.post("/login", response_model=CustomerLoginResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> CustomerLoginResponse:
-    customer = authenticate_customer(db, payload.username, payload.password)
+def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)) -> CustomerLoginResponse:
+    ip = rate_limit.client_ip(request)
+    try:
+        rate_limit.check_not_locked_out(SURFACE, payload.username, request)
+    except TooManyAttempts:
+        security_log.auth_lockout(surface=SURFACE, username=payload.username, ip=ip)
+        raise
+
+    try:
+        customer = authenticate_customer(db, payload.username, payload.password)
+    except Unauthorized:
+        rate_limit.record_failure(SURFACE, payload.username, request)
+        security_log.auth_failure(
+            surface=SURFACE, username=payload.username, ip=ip, reason="invalid_credentials"
+        )
+        raise
+
+    rate_limit.record_success(SURFACE, payload.username, request)
+    security_log.auth_success(surface=SURFACE, username=customer.username or "", ip=ip)
     token = create_access_token(customer.id, "customer")
     return CustomerLoginResponse(access_token=token, customer=customer)
 
@@ -74,3 +104,23 @@ def get_quote(
     if quote is None or quote.inquiry.customer_id != customer.id:
         raise NotFound(f"Quote {quote_id} not found")
     return quote
+
+
+@router.get("/invoices", response_model=list[CustomerInvoiceSummary])
+def list_invoices(
+    customer: Customer = Depends(get_current_customer), db: Session = Depends(get_db)
+) -> list[CustomerInvoiceSummary]:
+    stmt = select(Invoice).where(Invoice.customer_id == customer.id).order_by(Invoice.id)
+    return [customer_invoice_summary(inv) for inv in db.execute(stmt).scalars()]
+
+
+@router.get("/invoices/{invoice_id}", response_model=CustomerInvoiceDetail)
+def get_invoice(
+    invoice_id: int, customer: Customer = Depends(get_current_customer), db: Session = Depends(get_db)
+) -> CustomerInvoiceDetail:
+    invoice = db.get(Invoice, invoice_id)
+    if invoice is None or invoice.customer_id != customer.id:
+        # Same 404-for-both-cases pattern as get_shipment/get_quote above --
+        # never confirms another customer's invoice id is valid.
+        raise NotFound(f"Invoice {invoice_id} not found")
+    return customer_invoice_detail(invoice)

@@ -10,13 +10,39 @@ a general query by an ID the client could tamper with.
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from utils.errors import Unauthorized
+from utils.errors import DuplicateCustomerEmail, Unauthorized
 from models.customer import Customer
 from models.enums import ShipmentStage
 from models.inquiry import Inquiry
 from models.quote import Quote
 from models.shipment import Shipment
 from utils.security import hash_password, verify_password
+
+
+def create_customer(
+    session: Session,
+    *,
+    name: str,
+    email: str,
+    company_name: str | None = None,
+    phone: str | None = None,
+    address: str | None = None,
+) -> Customer:
+    """Checks for an existing customer with this email before inserting, so
+    the caller gets a specific DuplicateCustomerEmail (naming the existing
+    customer) instead of the generic IntegrityError 409 that a bare unique
+    constraint violation would otherwise surface as."""
+    existing = session.execute(select(Customer).where(Customer.email == email)).scalar_one_or_none()
+    if existing is not None:
+        raise DuplicateCustomerEmail(
+            f"A customer with email {email} already exists: {existing.name} (ID {existing.id}).",
+            customer_id=existing.id,
+            customer_name=existing.name,
+        )
+    customer = Customer(name=name, email=email, company_name=company_name, phone=phone, address=address)
+    session.add(customer)
+    session.flush()
+    return customer
 
 
 def authenticate_customer(session: Session, username: str, password: str) -> Customer:

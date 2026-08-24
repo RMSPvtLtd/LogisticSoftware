@@ -15,6 +15,7 @@ const STATUS_LABEL: Record<QuoteStatus, string> = {
   sent: "Sent",
   accepted: "Accepted",
   expired: "Expired",
+  rejected: "Rejected",
 }
 
 export function CustomerQuotesPage() {
@@ -49,11 +50,12 @@ export function CustomerQuotesPage() {
                       to={`/customer/quotes/${quote.id}`}
                       className="rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      Quote #{quote.id}
+                      Quote #{quote.root_quote_id ?? quote.id} Rev {quote.revision_number}
                     </Link>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="flex flex-wrap items-center gap-1.5">
                     <Badge variant="outline">{STATUS_LABEL[quote.status]}</Badge>
+                    {!quote.is_current && <Badge variant="secondary">Superseded</Badge>}
                   </TableCell>
                   <TableCell className="tabular-nums">{formatMoney(quote.total, quote.currency)}</TableCell>
                   <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">

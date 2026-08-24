@@ -43,14 +43,19 @@ def test_regenerating_a_quote_does_not_re_transition_the_shipment(db_session):
     n_events = len(inquiry.shipment.status_events)
 
     # Re-quoting (e.g. the first quote expired unaccepted) repoints
-    # quote_id without adding a second QUOTATION event or changing stage.
+    # quote_id without changing stage -- it's a revision, which does add one
+    # internal audit note (see services.quotes.generate_quote) but not a
+    # second QUOTATION stage-change event.
     second_quote = generate_quote(db_session, inquiry.id, today=TODAY)
     db_session.flush()
 
     assert inquiry.shipment.stage == ShipmentStage.QUOTATION
     assert inquiry.shipment.quote_id == second_quote.id
     assert inquiry.shipment.quote_id != first_quote.id
-    assert len(inquiry.shipment.status_events) == n_events
+    assert second_quote.revision_number == first_quote.revision_number + 1
+    assert second_quote.root_quote_id == first_quote.id
+    assert first_quote.superseded_at is not None
+    assert len(inquiry.shipment.status_events) == n_events + 1
 
 
 def test_accepting_advances_shipment_to_job_opening_and_assigns_job_number(db_session):
@@ -87,11 +92,11 @@ def _shipment_at_arrival(db_session):
     return shipment
 
 
-def test_invoice_endpoint_succeeds_from_arrival(client, db_session):
+def test_invoice_endpoint_succeeds_from_arrival(client, db_session, ops_headers):
     shipment = _shipment_at_arrival(db_session)
     db_session.commit()
 
-    r = client.post(f"/shipments/{shipment.id}/invoice", json={"note": "Invoice sent"})
+    r = client.post(f"/shipments/{shipment.id}/invoice", json={"note": "Invoice sent"}, headers=ops_headers)
     assert r.status_code == 200, r.text
     assert r.json()["stage"] == "invoice_to_customer"
     last_event = r.json()["status_events"][-1]
@@ -99,7 +104,7 @@ def test_invoice_endpoint_succeeds_from_arrival(client, db_session):
     assert last_event["note"] == "Invoice sent"
 
 
-def test_invoice_endpoint_rejected_before_arrival(client, db_session):
+def test_invoice_endpoint_rejected_before_arrival(client, db_session, ops_headers):
     customer = make_customer(db_session)
     simple_rate_card(db_session)
     inquiry = make_inquiry(db_session, customer)
@@ -108,8 +113,8 @@ def test_invoice_endpoint_rejected_before_arrival(client, db_session):
     shipment = accept_quote(db_session, quote.id, "ops", today=TODAY)
     db_session.commit()
 
-    r = client.post(f"/shipments/{shipment.id}/invoice", json={})
+    r = client.post(f"/shipments/{shipment.id}/invoice", json={}, headers=ops_headers)
     assert r.status_code == 409
 
-    check = client.get(f"/shipments/{shipment.id}")
+    check = client.get(f"/shipments/{shipment.id}", headers=ops_headers)
     assert check.json()["stage"] == "job_opening"

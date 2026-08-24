@@ -50,6 +50,12 @@ class TrackingResult(BaseModel):
     status_history: list[TrackingEvent]
     references: list[TrackingReference]
     at_risk: bool
+    is_cancelled: bool
+    # Sourced from Shipment.customer_cancellation_note (or a generic fallback)
+    # -- never from cancelled_reason, which is internal/audit-only and must
+    # never cross into this customer-safe schema. None unless is_cancelled.
+    cancellation_note: str | None
+    is_on_hold: bool
 
 
 def _build_checklist(shipment: Shipment) -> list[TrackingChecklistItem]:
@@ -101,4 +107,9 @@ def from_shipment(shipment: Shipment) -> TrackingResult:
         status_history=history,
         references=references,
         at_risk=shipment.is_at_risk,
+        is_cancelled=shipment.is_cancelled,
+        cancellation_note=(
+            (shipment.customer_cancellation_note or "Shipment cancelled.") if shipment.is_cancelled else None
+        ),
+        is_on_hold=shipment.is_on_hold,
     )

@@ -6,9 +6,10 @@ from db import get_db
 from utils.errors import NotFound
 from models.inquiry import Inquiry
 from schemas.inquiries import InquiryCreate, InquiryRead
+from utils.security import get_current_ops_user
 from services.inquiries import create_inquiry as create_inquiry_service
 
-router = APIRouter(prefix="/inquiries", tags=["inquiries"])
+router = APIRouter(prefix="/inquiries", tags=["inquiries"], dependencies=[Depends(get_current_ops_user)])
 
 
 @router.post("", response_model=InquiryRead, status_code=201)

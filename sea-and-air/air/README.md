@@ -123,11 +123,20 @@ See `.env.example` for the full list with defaults:
 - `VOLUMETRIC_FACTOR_AIR` / `_SEA` / `_ROAD` — kg-per-CBM dimensional weight factors (sea/road
   are unused in practice — see "Air freight only" below).
 - `JOB_NUMBER_PREFIX`, `JOB_NUMBER_PADDING` — job number format, e.g. `RAZ-2026-00001`.
-- `CORS_ORIGINS`, `DEFAULT_ACTOR`.
-- `JWT_SECRET_KEY`, `JWT_EXPIRY_MINUTES` — sign/expire worker and customer portal login
-  tokens (each token carries a `typ` claim, so a worker's token and a customer's token are
-  never interchangeable even if the two ids happen to collide). **Change `JWT_SECRET_KEY`
-  before deploying anywhere real** — the default is dev-only.
+- `INVOICE_NUMBER_PREFIX`, `INVOICE_NUMBER_PADDING` — invoice number format, e.g.
+  `INV-2026-00001`.
+- `CORS_ORIGINS`.
+- `JWT_SECRET_KEY`, `JWT_EXPIRY_MINUTES` — sign/expire worker, customer, and ops login
+  tokens (each token carries a `typ` claim, so a worker's token, a customer's token, and an
+  ops token are never interchangeable even if the underlying ids happen to collide).
+  **Change `JWT_SECRET_KEY` before deploying anywhere real** — the default is dev-only.
+- `OPS_ADMIN_USERNAME`, `OPS_ADMIN_PASSWORD` — bootstrap credential for the single ops
+  account the seed script creates (see "Demo ops login" below). **This is a temporary
+  development credential, not a permanent one** — it's only ever used to create the account
+  once (re-running the seed script never resets an existing admin's password), and it must
+  be changed via `POST /ops/change-password` (or the "Change password" menu in the ops UI)
+  before any real deployment. Override both via the environment for anything beyond local
+  dev; never commit a real value for either.
 
 `.env` is never committed (see `.gitignore`).
 
@@ -183,6 +192,15 @@ demo customers get one, matching how ops would actually grant access:
 |---|---|---|
 | `orient.traders` | Orient Traders | An active shipment (Customs Examination) |
 | `zainab.enterprises` | Zainab Enterprises | A completed/invoiced shipment + an accepted quote |
+
+**Demo ops login** — username/password from `OPS_ADMIN_USERNAME`/`OPS_ADMIN_PASSWORD`
+(defaults: `admin` / `ChangeMe123!`). Every `/quotes`, `/shipments`, `/invoices`,
+`/companies`, `/customers`, `/inquiries`, `/workers`, and document-management endpoint
+requires this login (`POST /ops/login`) — there is no unauthenticated ops access. This is a
+**temporary development credential**: change it via `POST /ops/change-password` (or
+Ops UI → account menu → "Change password") before any real deployment. Doing so bumps the
+account's `token_version`, which immediately invalidates every previously issued token for
+that account, not just the one making the change.
 
 ### Run the server
 

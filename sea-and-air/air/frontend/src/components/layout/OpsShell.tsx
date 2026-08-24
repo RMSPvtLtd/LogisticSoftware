@@ -1,7 +1,19 @@
+import { useState } from "react"
 import { NavLink, Outlet } from "react-router-dom"
-import { MagnifyingGlass, Package, Plus, Receipt, Truck, UserCircle, Users } from "@phosphor-icons/react"
+import { Key, MagnifyingGlass, Package, Plus, Receipt, Scales, SignOut, Truck, UserCircle, Users } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 import { ThemeToggle } from "@/components/shared/ThemeToggle"
+import { ChangePasswordDialog } from "@/components/shared/ChangePasswordDialog"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { useOpsAuth } from "@/hooks/useOpsAuth"
 
 const NAV_LINKS = [
   { to: "/shipments", label: "Shipments", icon: Package },
@@ -9,9 +21,13 @@ const NAV_LINKS = [
   { to: "/invoices", label: "Invoices", icon: Receipt },
   { to: "/workers", label: "Workers", icon: Users },
   { to: "/customers", label: "Customers", icon: UserCircle },
+  { to: "/rate-cards", label: "Rate Cards", icon: Scales },
 ]
 
 export function OpsShell() {
+  const { opsUser, logout } = useOpsAuth()
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false)
+
   return (
     <div className="min-h-dvh bg-background">
       <header className="sticky top-0 z-40 border-b border-border bg-card">
@@ -55,12 +71,33 @@ export function OpsShell() {
               <span className="hidden sm:inline">Customer tracking</span>
             </a>
             <ThemeToggle />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="gap-1.5 px-2.5">
+                  <UserCircle size={18} />
+                  <span className="hidden sm:inline">{opsUser?.name}</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>{opsUser?.username}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setChangePasswordOpen(true)} className="gap-2">
+                  <Key size={16} />
+                  Change password
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={logout} className="gap-2">
+                  <SignOut size={16} />
+                  Log out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </header>
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
         <Outlet />
       </main>
+      <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
     </div>
   )
 }

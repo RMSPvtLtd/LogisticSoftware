@@ -25,6 +25,8 @@ class WorkerRead(BaseModel):
 
 
 class WorkerCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(min_length=1, max_length=120)
     username: str = Field(min_length=3, max_length=60, pattern=r"^[a-zA-Z0-9._-]+$")
     password: str = Field(min_length=6, max_length=200)
@@ -32,5 +34,7 @@ class WorkerCreate(BaseModel):
 
 
 class WorkerUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     is_active: bool | None = None
     area_id: int | None = None

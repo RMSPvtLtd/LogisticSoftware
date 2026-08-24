@@ -1,9 +1,10 @@
-import { useRef, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 import { ArrowClockwise, CheckCircle, ClipboardText, SignOut, UploadSimple } from "@phosphor-icons/react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { EmptyState, ErrorState, LoadingState } from "@/components/shared/States"
 import { useAsync } from "@/hooks/useAsync"
@@ -12,17 +13,38 @@ import { ApiError, workerPortalApi } from "@/lib/api/client"
 import { formatRelativeTime } from "@/lib/format"
 import type { WorkerQueueItem } from "@/lib/api/types"
 
+type QueueTab = "remaining" | "completed"
+
 export function WorkerQueuePage() {
   const { worker, token, logout } = useWorkerAuth()
   const navigate = useNavigate()
 
-  const queue = useAsync(() => workerPortalApi.queue(token!), [token])
+  const [tab, setTab] = useState<QueueTab>("remaining")
+  const [customer, setCustomer] = useState<string>("all")
+
+  const remaining = useAsync(() => workerPortalApi.queue(token!), [token])
+  const completed = useAsync(() => workerPortalApi.completed(token!), [token])
+  const active = tab === "remaining" ? remaining : completed
+
+  // Per-customer filter chips, derived from whichever list is currently
+  // loaded rather than a hardcoded "main customers" list -- scales to
+  // whatever real customers actually have shipments in this worker's view.
+  const customerNames = useMemo(
+    () => Array.from(new Set((active.data ?? []).map((item) => item.customer_name))).sort(),
+    [active.data],
+  )
+  const visibleItems = (active.data ?? []).filter((item) => customer === "all" || item.customer_name === customer)
 
   if (!worker || !token) return null // route guard already redirects; guards a render-before-redirect flash
 
   function handleLogout() {
     logout()
     navigate("/worker/login")
+  }
+
+  function handleTabChange(next: string) {
+    setTab(next as QueueTab)
+    setCustomer("all") // a customer selected on one tab may not exist on the other
   }
 
   return (
@@ -42,44 +64,105 @@ export function WorkerQueuePage() {
       <main className="mx-auto max-w-2xl px-4 py-6">
         <div className="mb-4 flex items-center justify-between">
           <h1 className="font-heading text-lg font-semibold text-foreground">Waiting for {worker.area.name}</h1>
-          <Button variant="ghost" size="icon" aria-label="Refresh" onClick={queue.reload}>
+          <Button variant="ghost" size="icon" aria-label="Refresh" onClick={active.reload}>
             <ArrowClockwise size={18} />
           </Button>
         </div>
 
-        {queue.loading && <LoadingState rows={3} />}
+        <Tabs value={tab} onValueChange={handleTabChange} className="mb-3">
+          <TabsList>
+            <TabsTrigger value="remaining">Remaining</TabsTrigger>
+            <TabsTrigger value="completed">Completed</TabsTrigger>
+          </TabsList>
+        </Tabs>
 
-        {!queue.loading && queue.error && (
+        {!active.loading && !active.error && customerNames.length > 1 && (
+          <div className="mb-4 flex flex-wrap gap-1.5">
+            <Button
+              variant={customer === "all" ? "secondary" : "outline"}
+              size="sm"
+              onClick={() => setCustomer("all")}
+            >
+              All customers
+            </Button>
+            {customerNames.map((name) => (
+              <Button
+                key={name}
+                variant={customer === name ? "secondary" : "outline"}
+                size="sm"
+                onClick={() => setCustomer(name)}
+              >
+                {name}
+              </Button>
+            ))}
+          </div>
+        )}
+
+        {active.loading && <LoadingState rows={3} />}
+
+        {!active.loading && active.error && (
           <ErrorState
-            message={queue.error}
+            message={active.error}
             onRetry={() => {
-              if (queue.error?.toLowerCase().includes("session")) {
+              if (active.error?.toLowerCase().includes("session")) {
                 logout()
                 navigate("/worker/login")
               } else {
-                queue.reload()
+                active.reload()
               }
             }}
           />
         )}
 
-        {!queue.loading && !queue.error && (queue.data?.length ?? 0) === 0 && (
+        {!active.loading && !active.error && visibleItems.length === 0 && (
           <EmptyState
             icon={<ClipboardText size={32} />}
-            title="Nothing waiting right now"
-            description={`Shipments will show up here as soon as they're ready for ${worker.area.name}.`}
+            title={tab === "remaining" ? "Nothing waiting right now" : "Nothing completed yet"}
+            description={
+              tab === "remaining"
+                ? `Shipments will show up here as soon as they're ready for ${worker.area.name}.`
+                : `Shipments you mark done for ${worker.area.name} will show up here.`
+            }
           />
         )}
 
-        {!queue.loading && !queue.error && (queue.data?.length ?? 0) > 0 && (
+        {!active.loading && !active.error && visibleItems.length > 0 && (
           <div className="space-y-3">
-            {queue.data!.map((item) => (
-              <QueueItemCard key={item.id} item={item} token={token} onCompleted={queue.reload} />
-            ))}
+            {tab === "remaining"
+              ? visibleItems.map((item) => (
+                  <QueueItemCard key={item.id} item={item} token={token} onCompleted={remaining.reload} />
+                ))
+              : visibleItems.map((item) => <CompletedItemCard key={item.id} item={item} />)}
           </div>
         )}
       </main>
     </div>
+  )
+}
+
+function CompletedItemCard({ item }: { item: WorkerQueueItem }) {
+  const label = item.job_number ?? `Shipment #${item.id}`
+  return (
+    <Card className="opacity-80">
+      <CardContent className="space-y-2 py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="flex items-center gap-1.5 font-heading text-base font-semibold tabular-nums text-foreground">
+              <CheckCircle size={16} weight="fill" className="text-status-success" />
+              {label}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {item.customer_name} · {item.origin} → {item.destination}
+            </p>
+            <p className="text-sm text-muted-foreground">{item.cargo_type}</p>
+          </div>
+          <span className="shrink-0 text-xs text-muted-foreground">{formatRelativeTime(item.waiting_since)}</span>
+        </div>
+        {item.last_note && (
+          <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">"{item.last_note}"</p>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -94,6 +177,7 @@ function QueueItemCard({
   token: string
   onCompleted: () => void
 }) {
+  const label = item.job_number ?? `Shipment #${item.id}`
   const [note, setNote] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -103,7 +187,7 @@ function QueueItemCard({
     setSubmitting(true)
     try {
       await workerPortalApi.complete(token, item.id, note.trim() || undefined)
-      toast.success(`${item.job_number} marked done`)
+      toast.success(`${label} marked done`)
       onCompleted()
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not mark this shipment done.")
@@ -139,7 +223,7 @@ function QueueItemCard({
       <CardContent className="space-y-3 py-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="font-heading text-base font-semibold tabular-nums text-foreground">{item.job_number}</p>
+            <p className="font-heading text-base font-semibold tabular-nums text-foreground">{label}</p>
             <p className="text-sm text-muted-foreground">
               {item.customer_name} · {item.origin} → {item.destination}
             </p>
@@ -157,7 +241,7 @@ function QueueItemCard({
           onChange={(e) => setNote(e.target.value)}
           placeholder="Note (optional)"
           rows={2}
-          aria-label={`Note for ${item.job_number}`}
+          aria-label={`Note for ${label}`}
         />
 
         <div className="flex gap-2">

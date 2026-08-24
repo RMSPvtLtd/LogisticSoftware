@@ -172,6 +172,7 @@ class QuoteStatus(str, Enum):
     SENT = "sent"
     ACCEPTED = "accepted"
     EXPIRED = "expired"
+    REJECTED = "rejected"
 
 
 class InvoiceStatus(str, Enum):
@@ -221,3 +222,15 @@ class UnitOfMeasure(str, Enum):
     PER_KG = "per_kg"
     PER_CBM = "per_cbm"
     FLAT = "flat"
+
+
+class DocumentType(str, Enum):
+    QUOTATION = "quotation"
+    INVOICE = "invoice"
+    AIRWAY_BILL = "airway_bill"
+    GD = "gd"
+    CUSTOMS = "customs"
+    SHIPMENT_RECEIPT = "shipment_receipt"
+    EXAMINATION = "examination"
+    DELIVERY = "delivery"
+    OTHER = "other"

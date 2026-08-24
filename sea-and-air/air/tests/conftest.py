@@ -52,3 +52,23 @@ def client(session_factory):
     with TestClient(fastapi_app) as test_client:
         yield test_client
     fastapi_app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def ops_headers(client, db_session):
+    """Authorization header for an authenticated ops user -- every ops-facing
+    router now requires one (see utils.security.get_current_ops_user).
+    Creates the account directly via the factory rather than going through
+    an ops signup flow, since there isn't one (ops accounts are created by
+    the seed script or another ops user, never self-service).
+    """
+    from factories import make_ops_user
+
+    password = "OpsTest123!"
+    ops_user = make_ops_user(db_session, password=password)
+    db_session.commit()
+
+    response = client.post("/ops/login", json={"username": ops_user.username, "password": password})
+    assert response.status_code == 200, response.text
+    token = response.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}

@@ -8,7 +8,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from models.enums import ShipmentStage
+from models.enums import DocumentType, ShipmentStage
 
 
 class ShipmentDocumentRead(BaseModel):
@@ -17,6 +17,7 @@ class ShipmentDocumentRead(BaseModel):
     id: int
     shipment_id: int
     stage: ShipmentStage
+    document_type: DocumentType
     filename: str
     content_type: str
     size_bytes: int

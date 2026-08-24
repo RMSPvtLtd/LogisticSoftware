@@ -18,7 +18,13 @@ const KIND_LABEL: Record<string, string> = {
   other: "Other",
 }
 
-const STATUS_LABEL: Record<string, string> = { draft: "Draft", sent: "Sent", accepted: "Accepted", expired: "Expired" }
+const STATUS_LABEL: Record<string, string> = {
+  draft: "Draft",
+  sent: "Sent",
+  accepted: "Accepted",
+  expired: "Expired",
+  rejected: "Rejected",
+}
 
 export function CustomerQuoteDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -35,14 +41,27 @@ export function CustomerQuoteDetailPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <PageHeader
-        title={`Quote #${q.id}`}
+        title={`Quote #${q.root_quote_id ?? q.id} Rev ${q.revision_number}`}
         description={
-          <span className="flex items-center gap-2">
+          <span className="flex flex-wrap items-center gap-2">
             <Badge variant="outline">{STATUS_LABEL[q.status]}</Badge>
+            {!q.is_current && <Badge variant="secondary">Superseded</Badge>}
             <span>Valid until {formatDate(q.valid_until)}</span>
           </span>
         }
       />
+
+      {!q.is_current && (
+        <div className="rounded-xl border border-border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
+          This revision has been superseded by a newer quote. Contact us if you need the current version.
+        </div>
+      )}
+
+      {q.status === "rejected" && q.rejected_reason && (
+        <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          <span className="font-medium">Declined:</span> {q.rejected_reason}
+        </div>
+      )}
 
       <Card>
         <CardHeader>

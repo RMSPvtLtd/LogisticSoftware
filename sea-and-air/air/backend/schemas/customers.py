@@ -7,6 +7,8 @@ _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class CustomerCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(min_length=1, max_length=200)
     company_name: str | None = Field(default=None, max_length=200)
     email: str = Field(max_length=320)
@@ -40,10 +42,14 @@ class CustomerPortalCredentials(BaseModel):
     """Ops-only: (re)issues a customer's portal login. Sets a new username
     and password and enables access in one step -- there's no separate
     "create username" and "set password" action."""
+    model_config = ConfigDict(extra="forbid")
+
 
     username: str = Field(min_length=3, max_length=60, pattern=r"^[a-zA-Z0-9._-]+$")
     password: str = Field(min_length=6, max_length=200)
 
 
 class CustomerPortalUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     is_active: bool
