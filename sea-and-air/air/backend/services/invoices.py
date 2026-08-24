@@ -62,6 +62,7 @@ def create_invoice_from_quote(
     *,
     company_id: int,
     replaces_invoice_id: int | None = None,
+    remarks: str | None = None,
     today: date | None = None,
 ) -> Invoice:
     today = today or date.today()
@@ -126,6 +127,7 @@ def create_invoice_from_quote(
         origin_snapshot=inquiry.origin,
         destination_snapshot=inquiry.destination,
         mode_snapshot=inquiry.mode.value,
+        cargo_type_snapshot=inquiry.cargo_type,
         incoterm_snapshot=inquiry.incoterm,
         hs_code_snapshot=inquiry.hs_code,
         pieces_snapshot=inquiry.pieces,
@@ -136,6 +138,7 @@ def create_invoice_from_quote(
         voyage_flight_number_snapshot=shipment.voyage_flight_number,
         job_number_snapshot=shipment.job_number,
         references_snapshot=references_snapshot,
+        remarks=remarks,
     )
     # Added to the session before appending line items / setting the
     # quote<->invoice back-populate, so autoflush doesn't warn about a

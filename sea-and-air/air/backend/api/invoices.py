@@ -20,7 +20,11 @@ quote_router = APIRouter(prefix="/quotes", tags=["invoices"], dependencies=[Depe
 @quote_router.post("/{quote_id}/invoice", response_model=InvoiceRead, status_code=201)
 def create_from_quote(quote_id: int, payload: InvoiceCreateRequest, db: Session = Depends(get_db)) -> Invoice:
     return create_invoice_from_quote(
-        db, quote_id, company_id=payload.company_id, replaces_invoice_id=payload.replaces_invoice_id
+        db,
+        quote_id,
+        company_id=payload.company_id,
+        replaces_invoice_id=payload.replaces_invoice_id,
+        remarks=payload.remarks,
     )
 
 

@@ -49,6 +49,7 @@ class InvoiceRead(BaseModel):
     origin_snapshot: str
     destination_snapshot: str
     mode_snapshot: str
+    cargo_type_snapshot: str | None
     incoterm_snapshot: str
     hs_code_snapshot: str | None
     pieces_snapshot: int | None
@@ -58,6 +59,7 @@ class InvoiceRead(BaseModel):
     carrier_snapshot: str | None
     voyage_flight_number_snapshot: str | None
     job_number_snapshot: str | None
+    remarks: str | None
     created_at: datetime
     line_items: list[InvoiceLineItemRead]
 
@@ -67,6 +69,7 @@ class InvoiceCreateRequest(BaseModel):
 
     company_id: int
     replaces_invoice_id: int | None = None
+    remarks: str | None = Field(default=None, max_length=2000)
 
 
 class InvoiceCancelRequest(BaseModel):

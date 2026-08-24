@@ -79,6 +79,7 @@ class Invoice(TimestampMixin, Base):
     origin_snapshot: Mapped[str] = mapped_column(String(120), nullable=False)
     destination_snapshot: Mapped[str] = mapped_column(String(120), nullable=False)
     mode_snapshot: Mapped[str] = mapped_column(String(20), nullable=False)
+    cargo_type_snapshot: Mapped[str | None] = mapped_column(String(120))
     incoterm_snapshot: Mapped[str] = mapped_column(String(10), nullable=False)
     hs_code_snapshot: Mapped[str | None] = mapped_column(String(20))
     pieces_snapshot: Mapped[int | None] = mapped_column()

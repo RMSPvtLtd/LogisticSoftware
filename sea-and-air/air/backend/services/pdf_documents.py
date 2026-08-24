@@ -86,6 +86,7 @@ class _DocumentData:
     valid_until: date | None = None
     show_bank_details: bool = False
     remarks: str | None = None
+    cargo_type: str | None = None
 
 
 def _esc(value: object) -> str:
@@ -149,6 +150,7 @@ def _quote_to_document_data(session: Session, quote: Quote) -> _DocumentData:
         total=quote.total,
         valid_until=quote.valid_until,
         show_bank_details=False,
+        cargo_type=inquiry.cargo_type,
     )
 
 
@@ -189,6 +191,7 @@ def _invoice_to_document_data(invoice: Invoice) -> _DocumentData:
         total=invoice.total,
         show_bank_details=True,
         remarks=invoice.remarks,
+        cargo_type=invoice.cargo_type_snapshot,
     )
 
 
@@ -280,6 +283,7 @@ def _build_pdf(data: _DocumentData) -> bytes:
     particulars = [
         ("Origin", data.origin), ("Destination", data.destination),
         ("Mode", _STAGE_LABEL.get(data.mode, data.mode)), ("Incoterm", data.incoterm),
+        ("Description of Goods", data.cargo_type or "-"),
         ("HS Code", data.hs_code or "-"), ("Pieces", str(data.pieces) if data.pieces else "-"),
         ("Gross Weight", f"{data.weight_kg:,.2f} KGS"),
         ("Chargeable Weight", f"{data.chargeable_weight_kg:,.2f} KGS"),

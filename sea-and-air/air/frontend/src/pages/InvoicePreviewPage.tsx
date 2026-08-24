@@ -1,18 +1,20 @@
 import { useMemo, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
-import { ArrowLeft, Receipt } from "@phosphor-icons/react"
+import { ArrowLeft, Plus, Receipt } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { LoadingState, ErrorState } from "@/components/shared/States"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useAsync } from "@/hooks/useAsync"
 import { ApiError, companiesApi, customersApi, inquiriesApi, invoicesApi, quotesApi, shipmentsApi } from "@/lib/api/client"
 import { formatMoney } from "@/lib/format"
+import type { ReferenceType } from "@/lib/api/types"
 
 const KIND_LABEL: Record<string, string> = {
   freight: "Freight",
@@ -23,11 +25,15 @@ const KIND_LABEL: Record<string, string> = {
   other: "Other",
 }
 
+const REFERENCE_TYPES: ReferenceType[] = ["MAWB", "HAWB", "MBL", "HBL", "CONTAINER", "FORM_E", "LC", "PARTY_REFERENCE"]
+
 // Everything shown here is exactly what create_invoice_from_quote will
 // snapshot server-side -- fetched directly from the quote/inquiry/shipment
 // rather than a separate "preview" endpoint, since nothing here is computed
-// differently at creation time. The only field ops actually chooses is the
-// billing entity; the rest is read-only review before committing.
+// differently at creation time. Most fields are read-only review, sourced
+// from the quote/inquiry; the billing entity, remarks, and any shipment
+// reference (MB/L, HB/L, Form E, LC, Party Reference, Container) are the
+// only things not already known at this point, so those are editable here.
 export function InvoicePreviewPage() {
   const { id } = useParams<{ id: string }>()
   const shipmentId = Number(id)
@@ -49,8 +55,12 @@ export function InvoicePreviewPage() {
   const companies = useAsync(() => companiesApi.list(), [])
 
   const [companyId, setCompanyId] = useState<string>("")
-  const [note, setNote] = useState("")
+  const [statusNote, setStatusNote] = useState("")
+  const [remarks, setRemarks] = useState("")
   const [submitting, setSubmitting] = useState(false)
+  const [refType, setRefType] = useState<ReferenceType>("MAWB")
+  const [refValue, setRefValue] = useState("")
+  const [addingRef, setAddingRef] = useState(false)
 
   const defaultCompanyId = useMemo(() => {
     const list = companies.data ?? []
@@ -79,13 +89,33 @@ export function InvoicePreviewPage() {
     if (!selectedCompanyId) return
     setSubmitting(true)
     try {
-      const invoice = await invoicesApi.createFromQuote(q.id, Number(selectedCompanyId))
-      await shipmentsApi.invoice(shipmentId, note.trim() || undefined)
+      const invoice = await invoicesApi.createFromQuote(
+        q.id,
+        Number(selectedCompanyId),
+        undefined,
+        remarks.trim() || undefined,
+      )
+      await shipmentsApi.invoice(shipmentId, statusNote.trim() || undefined)
       toast.success("Invoice generated")
       navigate(`/invoices/${invoice.id}`)
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not generate the invoice.")
       setSubmitting(false)
+    }
+  }
+
+  async function handleAddReference() {
+    if (!refValue.trim()) return
+    setAddingRef(true)
+    try {
+      await shipmentsApi.addReference(shipmentId, refType, refValue.trim())
+      toast.success("Reference added")
+      setRefValue("")
+      shipment.reload()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not add reference.")
+    } finally {
+      setAddingRef(false)
     }
   }
 
@@ -186,12 +216,80 @@ export function InvoicePreviewPage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Note (optional)</Label>
-                <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Recorded on the shipment's status history" rows={2} />
+                <Label>Remarks (optional)</Label>
+                <Textarea
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                  placeholder="Printed on the invoice itself"
+                  rows={2}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Status note (optional)</Label>
+                <Textarea
+                  value={statusNote}
+                  onChange={(e) => setStatusNote(e.target.value)}
+                  placeholder="Recorded on the shipment's status history, not on the invoice"
+                  rows={2}
+                />
               </div>
               <Button onClick={handleGenerate} disabled={submitting || !selectedCompanyId} className="w-full gap-1.5">
                 <Receipt size={16} />
                 {submitting ? "Generating…" : "Generate Invoice"}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">References</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                MB/L, HB/L, Form E, LC, Party Reference, Container -- not part of the quote, add any that apply
+                before generating.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {s.references.length > 0 ? (
+                <ul className="space-y-1.5 text-sm">
+                  {s.references.map((r) => (
+                    <li key={r.id} className="flex items-center justify-between rounded-lg bg-muted px-3 py-1.5">
+                      <span className="text-muted-foreground">{r.type.replace("_", " ")}</span>
+                      <span className="font-medium tabular-nums">{r.value}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">No references added yet.</p>
+              )}
+              <div className="flex gap-2">
+                <Select value={refType} onValueChange={(v) => setRefType(v as ReferenceType)}>
+                  <SelectTrigger className="w-32 shrink-0" aria-label="Reference type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {REFERENCE_TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {t}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  value={refValue}
+                  onChange={(e) => setRefValue(e.target.value)}
+                  placeholder="Reference number"
+                  aria-label="Reference value"
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={addingRef || !refValue.trim()}
+                onClick={handleAddReference}
+                className="w-full gap-1.5"
+              >
+                <Plus size={14} />
+                {addingRef ? "Adding…" : "Add reference"}
               </Button>
             </CardContent>
           </Card>
@@ -215,6 +313,7 @@ export function InvoicePreviewPage() {
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <InfoRow label="Job Number" value={s.job_number} />
+              <InfoRow label="Description of Goods" value={inq?.cargo_type ?? null} />
               <InfoRow label="Incoterm" value={inq?.incoterm ?? null} />
               <InfoRow label="HS Code" value={inq?.hs_code ?? null} />
               <InfoRow label="Pieces" value={inq?.pieces ? String(inq.pieces) : null} />

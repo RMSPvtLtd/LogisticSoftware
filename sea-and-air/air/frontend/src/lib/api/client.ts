@@ -234,10 +234,14 @@ export const rateCardsApi = {
 export const invoicesApi = {
   list: () => opsRequest<Invoice[]>("/invoices"),
   get: (id: number) => opsRequest<Invoice>(`/invoices/${id}`),
-  createFromQuote: (quoteId: number, companyId: number, replacesInvoiceId?: number) =>
+  createFromQuote: (quoteId: number, companyId: number, replacesInvoiceId?: number, remarks?: string) =>
     opsRequest<Invoice>(`/quotes/${quoteId}/invoice`, {
       method: "POST",
-      body: JSON.stringify({ company_id: companyId, replaces_invoice_id: replacesInvoiceId ?? null }),
+      body: JSON.stringify({
+        company_id: companyId,
+        replaces_invoice_id: replacesInvoiceId ?? null,
+        remarks: remarks || null,
+      }),
     }),
   cancel: (id: number, reason: string) =>
     opsRequest<Invoice>(`/invoices/${id}/cancel`, { method: "POST", body: JSON.stringify({ reason }) }),

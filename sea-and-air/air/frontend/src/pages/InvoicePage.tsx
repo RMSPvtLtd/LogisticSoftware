@@ -186,6 +186,7 @@ export function InvoicePage() {
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <InfoRow label="Job Number" value={inv.job_number_snapshot} />
+              <InfoRow label="Description of Goods" value={inv.cargo_type_snapshot} />
               <InfoRow label="Incoterm" value={inv.incoterm_snapshot} />
               <InfoRow label="HS Code" value={inv.hs_code_snapshot} />
               <InfoRow label="Pieces" value={inv.pieces_snapshot ? String(inv.pieces_snapshot) : null} />
@@ -196,6 +197,15 @@ export function InvoicePage() {
               {inv.supplier_name_snapshot && <InfoRow label="Supplier" value={inv.supplier_name_snapshot} />}
             </CardContent>
           </Card>
+
+          {inv.remarks && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Remarks</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-foreground">{inv.remarks}</CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>

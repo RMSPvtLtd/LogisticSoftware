@@ -39,8 +39,20 @@ def test_create_invoice_from_accepted_quote(db_session):
     assert invoice.hs_code_snapshot == "1234.56"
     assert invoice.pieces_snapshot == 5
     assert invoice.supplier_name_snapshot == "Test Supplier Ltd"
+    assert invoice.cargo_type_snapshot == "General cargo"
     assert invoice.invoice_number.startswith("INV-2026-")
     assert len(invoice.line_items) == len(quote.line_items)
+
+
+def test_create_invoice_from_quote_accepts_remarks(db_session):
+    company = make_company(db_session)
+    quote = _accepted_quote(db_session)
+
+    invoice = create_invoice_from_quote(
+        db_session, quote.id, company_id=company.id, remarks="Handle with care", today=TODAY
+    )
+
+    assert invoice.remarks == "Handle with care"
 
 
 def test_create_invoice_rejected_for_non_accepted_quote(db_session):

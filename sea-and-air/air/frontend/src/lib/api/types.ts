@@ -384,6 +384,7 @@ export interface Invoice {
   origin_snapshot: string
   destination_snapshot: string
   mode_snapshot: string
+  cargo_type_snapshot: string | null
   incoterm_snapshot: string
   hs_code_snapshot: string | null
   pieces_snapshot: number | null
@@ -393,6 +394,7 @@ export interface Invoice {
   carrier_snapshot: string | null
   voyage_flight_number_snapshot: string | null
   job_number_snapshot: string | null
+  remarks: string | null
   created_at: string
   line_items: InvoiceLineItem[]
 }
