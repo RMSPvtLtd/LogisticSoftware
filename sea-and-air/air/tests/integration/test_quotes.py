@@ -10,8 +10,11 @@ from utils.errors import InvalidQuoteState, QuoteExpired
 from models.enums import EventSource, OPERATIONAL_STAGE_ORDER, QuoteStatus, ShipmentStage
 from services.quotes import (
     LineItemOverride,
+    ManualLineItem,
     accept_quote,
+    create_manual_quote,
     generate_quote,
+    generate_quotes,
     list_revisions,
     override_line_items,
     reject_quote,
@@ -20,7 +23,7 @@ from services.quotes import (
     set_quote_clauses,
 )
 from services.transitions import advance_stage
-from factories import make_customer, make_inquiry, simple_rate_card
+from factories import add_break, make_customer, make_inquiry, make_rate_card, simple_rate_card
 
 TODAY = date(2026, 6, 1)
 
@@ -411,7 +414,7 @@ def test_reject_endpoint(client, db_session, ops_headers):
         headers=ops_headers,
     )
     inquiry_id = r.json()["id"]
-    quote_id = client.post("/quotes/generate", json={"inquiry_id": inquiry_id}, headers=ops_headers).json()["id"]
+    quote_id = client.post("/quotes/generate", json={"inquiry_id": inquiry_id}, headers=ops_headers).json()[0]["id"]
 
     r = client.post(f"/quotes/{quote_id}/reject", json={"reason": "Customer found a cheaper rate"}, headers=ops_headers)
     assert r.status_code == 200, r.text
@@ -533,3 +536,222 @@ def test_revisions_endpoint(client, db_session, ops_headers):
     assert r.status_code == 200, r.text
     ids = [q["id"] for q in r.json()]
     assert ids == [rev1.id, rev2.id]
+
+
+# --- parallel (multi-carrier) quotes ---
+
+
+def _two_carrier_rate_cards(db_session, **inquiry_overrides):
+    customer = make_customer(db_session)
+    simple_rate_card(db_session, carrier="PIA", rate=Decimal("5.00"))
+    simple_rate_card(db_session, carrier="Emirates SkyCargo", rate=Decimal("7.00"))
+    inquiry = make_inquiry(db_session, customer, **inquiry_overrides)
+    return inquiry
+
+
+def test_generate_quotes_returns_one_per_carrier(db_session):
+    inquiry = _two_carrier_rate_cards(db_session)
+
+    quotes = generate_quotes(db_session, inquiry.id, today=TODAY)
+
+    assert len(quotes) == 2
+    carriers = {q.carrier for q in quotes}
+    assert carriers == {"PIA", "Emirates SkyCargo"}
+    assert all(not q.is_manual for q in quotes)
+    assert all(q.revision_number == 1 and q.root_quote_id is None for q in quotes)
+
+
+def test_regenerating_supersedes_the_correct_per_carrier_lineage(db_session):
+    inquiry = _two_carrier_rate_cards(db_session)
+    first_batch = generate_quotes(db_session, inquiry.id, today=TODAY)
+    pia_1 = next(q for q in first_batch if q.carrier == "PIA")
+    emirates_1 = next(q for q in first_batch if q.carrier == "Emirates SkyCargo")
+
+    second_batch = generate_quotes(db_session, inquiry.id, today=TODAY)
+    pia_2 = next(q for q in second_batch if q.carrier == "PIA")
+    emirates_2 = next(q for q in second_batch if q.carrier == "Emirates SkyCargo")
+
+    assert pia_2.revision_number == 2
+    assert pia_2.root_quote_id == pia_1.id
+    assert pia_1.superseded_at is not None
+    assert emirates_2.revision_number == 2
+    assert emirates_2.root_quote_id == emirates_1.id
+    assert emirates_1.superseded_at is not None
+    # Each carrier's lineage stays independent -- PIA's revision doesn't
+    # touch Emirates' root_quote_id or vice versa.
+    assert pia_2.root_quote_id != emirates_2.root_quote_id
+
+
+def test_a_new_carrier_added_between_generations_starts_a_fresh_lineage(db_session):
+    customer = make_customer(db_session)
+    simple_rate_card(db_session, carrier="PIA", rate=Decimal("5.00"))
+    inquiry = make_inquiry(db_session, customer)
+    first_batch = generate_quotes(db_session, inquiry.id, today=TODAY)
+    assert len(first_batch) == 1
+
+    # A second carrier's rate card is added after the first generation.
+    simple_rate_card(db_session, carrier="Emirates SkyCargo", rate=Decimal("7.00"))
+    second_batch = generate_quotes(db_session, inquiry.id, today=TODAY)
+
+    assert len(second_batch) == 2
+    emirates = next(q for q in second_batch if q.carrier == "Emirates SkyCargo")
+    assert emirates.revision_number == 1
+    assert emirates.root_quote_id is None
+
+
+def test_a_carrier_dropping_out_gets_superseded_with_no_successor(db_session):
+    customer = make_customer(db_session)
+    pia_card = simple_rate_card(db_session, carrier="PIA", rate=Decimal("5.00"))
+    simple_rate_card(db_session, carrier="Emirates SkyCargo", rate=Decimal("7.00"))
+    inquiry = make_inquiry(db_session, customer)
+    first_batch = generate_quotes(db_session, inquiry.id, today=TODAY)
+    pia_1 = next(q for q in first_batch if q.carrier == "PIA")
+
+    # PIA's rate card expires before the lane is re-quoted.
+    pia_card.valid_until = date(2026, 1, 1)
+    db_session.flush()
+
+    second_batch = generate_quotes(db_session, inquiry.id, today=TODAY)
+
+    assert len(second_batch) == 1
+    assert second_batch[0].carrier == "Emirates SkyCargo"
+    assert pia_1.superseded_at is not None
+    assert pia_1.is_current is False
+
+
+def test_accepting_one_sibling_supersedes_the_other_carriers(db_session):
+    inquiry = _two_carrier_rate_cards(db_session)
+    quotes = generate_quotes(db_session, inquiry.id, today=TODAY)
+    pia = next(q for q in quotes if q.carrier == "PIA")
+    emirates = next(q for q in quotes if q.carrier == "Emirates SkyCargo")
+
+    accept_quote(db_session, pia.id, "ops", today=TODAY)
+
+    assert pia.status == QuoteStatus.ACCEPTED
+    assert pia.superseded_at is None
+    assert emirates.superseded_at is not None
+    assert emirates.is_current is False
+
+
+def test_generate_quotes_blocked_once_any_sibling_is_accepted(db_session):
+    inquiry = _two_carrier_rate_cards(db_session)
+    quotes = generate_quotes(db_session, inquiry.id, today=TODAY)
+    pia = next(q for q in quotes if q.carrier == "PIA")
+    accept_quote(db_session, pia.id, "ops", today=TODAY)
+
+    with pytest.raises(InvalidQuoteState):
+        generate_quotes(db_session, inquiry.id, today=TODAY)
+
+
+# --- manual quotes ---
+
+
+def _manual_line_items():
+    return [
+        ManualLineItem(
+            kind=m.ChargeKind.FREIGHT, description="Freight (manual)",
+            quantity=Decimal("100"), unit_price=Decimal("4.5000"), amount=Decimal("450.00"),
+        ),
+        ManualLineItem(
+            kind=m.ChargeKind.DOCUMENTATION, description="AWB fee",
+            quantity=Decimal("1"), unit_price=Decimal("25.0000"), amount=Decimal("25.00"),
+        ),
+    ]
+
+
+def test_create_manual_quote(db_session):
+    customer = make_customer(db_session)
+    inquiry = make_inquiry(db_session, customer)
+
+    quote = create_manual_quote(
+        db_session, inquiry.id, carrier="Qatar Airways Cargo", currency="USD",
+        line_items=_manual_line_items(), today=TODAY,
+    )
+
+    assert quote.carrier == "Qatar Airways Cargo"
+    assert quote.is_manual is True
+    assert quote.revision_number == 1
+    assert quote.root_quote_id is None
+    assert quote.subtotal == Decimal("475.00")
+    assert quote.total > quote.subtotal  # standard markup still applied
+    assert quote.shipment_stage == ShipmentStage.QUOTATION
+
+
+def test_create_manual_quote_requires_at_least_one_line_item(db_session):
+    customer = make_customer(db_session)
+    inquiry = make_inquiry(db_session, customer)
+
+    with pytest.raises(InvalidQuoteState):
+        create_manual_quote(db_session, inquiry.id, carrier="X", currency="USD", line_items=[], today=TODAY)
+
+
+def test_create_manual_quote_is_independent_of_auto_regeneration(db_session):
+    customer = make_customer(db_session)
+    simple_rate_card(db_session, carrier="PIA", rate=Decimal("5.00"))
+    inquiry = make_inquiry(db_session, customer)
+
+    manual = create_manual_quote(
+        db_session, inquiry.id, carrier="Qatar Airways Cargo", currency="USD",
+        line_items=_manual_line_items(), today=TODAY,
+    )
+    auto_batch = generate_quotes(db_session, inquiry.id, today=TODAY)
+
+    # The manual quote is untouched by generate_quotes -- still current,
+    # not superseded, and not part of the auto batch.
+    assert manual.superseded_at is None
+    assert manual.is_current is True
+    assert manual.id not in [q.id for q in auto_batch]
+
+    # Regenerating the auto batch again doesn't touch the manual quote either.
+    generate_quotes(db_session, inquiry.id, today=TODAY)
+    assert manual.superseded_at is None
+
+
+def test_create_manual_quote_blocked_once_inquiry_already_won(db_session):
+    inquiry = _two_carrier_rate_cards(db_session)
+    quotes = generate_quotes(db_session, inquiry.id, today=TODAY)
+    accept_quote(db_session, quotes[0].id, "ops", today=TODAY)
+
+    with pytest.raises(InvalidQuoteState):
+        create_manual_quote(
+            db_session, inquiry.id, carrier="Late Offer", currency="USD",
+            line_items=_manual_line_items(), today=TODAY,
+        )
+
+
+def test_manual_quote_endpoint(client, db_session, ops_headers):
+    customer = make_customer(db_session)
+    inquiry = make_inquiry(db_session, customer)
+    db_session.commit()
+
+    r = client.post(
+        "/quotes/manual",
+        json={
+            "inquiry_id": inquiry.id,
+            "carrier": "Qatar Airways Cargo",
+            "currency": "USD",
+            "line_items": [
+                {"kind": "freight", "description": "Freight (manual)", "quantity": "100", "unit_price": "4.5000", "amount": "450.00"},
+            ],
+        },
+        headers=ops_headers,
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["carrier"] == "Qatar Airways Cargo"
+    assert body["is_manual"] is True
+
+
+def test_generate_endpoint_returns_a_list(client, db_session, ops_headers):
+    customer = make_customer(db_session)
+    simple_rate_card(db_session, carrier="PIA")
+    simple_rate_card(db_session, carrier="Emirates SkyCargo")
+    inquiry = make_inquiry(db_session, customer)
+    db_session.commit()
+
+    r = client.post("/quotes/generate", json={"inquiry_id": inquiry.id}, headers=ops_headers)
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert isinstance(body, list)
+    assert len(body) == 2
+    assert {q["carrier"] for q in body} == {"PIA", "Emirates SkyCargo"}

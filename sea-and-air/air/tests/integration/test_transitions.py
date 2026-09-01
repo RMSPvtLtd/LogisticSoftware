@@ -311,7 +311,7 @@ def test_caller_cannot_spoof_event_source_via_worker_complete(client, db_session
 
     r = client.post("/quotes/generate", json={"inquiry_id": inquiry_id}, headers=ops_headers)
     assert r.status_code == 201, r.text
-    quote_id = r.json()["id"]
+    quote_id = r.json()[0]["id"]
 
     r = client.post(f"/quotes/{quote_id}/accept", headers=ops_headers)
     assert r.status_code == 200, r.text

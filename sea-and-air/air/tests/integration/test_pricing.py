@@ -5,7 +5,7 @@ import pytest
 
 from utils.errors import NoApplicableRate
 from models.enums import ChargeBasis, ChargeKind, TransportMode, UnitOfMeasure
-from services.pricing import applicable_charges, price_inquiry
+from services.pricing import applicable_charges, price_all_matching, price_inquiry
 from factories import add_break, add_charge, make_customer, make_inquiry, make_rate_card, simple_rate_card
 
 TODAY = date(2026, 6, 1)
@@ -320,3 +320,67 @@ def test_incoterm_cfr_excludes_customs():
 def test_incoterm_unknown_includes_everything():
     result = applicable_charges("XXX", _charges())
     assert len(result) == 3
+
+
+# --- price_all_matching / multi-carrier selection ---
+
+
+def test_price_all_matching_single_carrier_still_returns_one(db_session):
+    customer = make_customer(db_session)
+    simple_rate_card(db_session, carrier="TestAir")
+    inquiry = make_inquiry(db_session, customer)
+
+    priced_list = price_all_matching(db_session, inquiry, today=TODAY)
+
+    assert len(priced_list) == 1
+    assert priced_list[0].carrier == "TestAir"
+
+
+def test_price_all_matching_one_quote_per_carrier(db_session):
+    customer = make_customer(db_session)
+    simple_rate_card(db_session, carrier="PIA", rate=Decimal("5.00"))
+    simple_rate_card(db_session, carrier="Emirates SkyCargo", rate=Decimal("7.00"))
+    inquiry = make_inquiry(db_session, customer)
+
+    priced_list = price_all_matching(db_session, inquiry, today=TODAY)
+
+    carriers = {p.carrier for p in priced_list}
+    assert carriers == {"PIA", "Emirates SkyCargo"}
+    assert len(priced_list) == 2
+
+
+def test_price_all_matching_same_carrier_overlapping_cards_collapse_to_latest(db_session):
+    customer = make_customer(db_session)
+    simple_rate_card(
+        db_session, carrier="PIA", rate=Decimal("5.00"), valid_from=date(2020, 1, 1), valid_until=date(2035, 1, 1)
+    )
+    # A more recent card for the SAME carrier, also valid today -- should win.
+    simple_rate_card(
+        db_session, carrier="PIA", rate=Decimal("6.00"), valid_from=date(2026, 1, 1), valid_until=date(2035, 1, 1)
+    )
+    inquiry = make_inquiry(db_session, customer)
+
+    priced_list = price_all_matching(db_session, inquiry, today=TODAY)
+
+    assert len(priced_list) == 1
+    freight_line = next(li for li in priced_list[0].line_items if li.kind == ChargeKind.FREIGHT)
+    assert freight_line.unit_price == Decimal("6.00")
+
+
+def test_price_all_matching_no_carrier_collapses_to_one_unspecified_quote(db_session):
+    customer = make_customer(db_session)
+    simple_rate_card(db_session, carrier=None)
+    inquiry = make_inquiry(db_session, customer)
+
+    priced_list = price_all_matching(db_session, inquiry, today=TODAY)
+
+    assert len(priced_list) == 1
+    assert priced_list[0].carrier is None
+
+
+def test_price_all_matching_raises_when_zero_carriers_match(db_session):
+    customer = make_customer(db_session)
+    inquiry = make_inquiry(db_session, customer)
+
+    with pytest.raises(NoApplicableRate):
+        price_all_matching(db_session, inquiry, today=TODAY)

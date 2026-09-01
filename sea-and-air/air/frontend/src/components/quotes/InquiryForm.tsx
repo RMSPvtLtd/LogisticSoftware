@@ -111,9 +111,20 @@ export function InquiryForm() {
         supplier_address: supplierAddress.trim() || null,
       })
 
-      const quote = await quotesApi.generate(inquiry.id)
-      toast.success("Quote generated")
-      navigate(`/quotes/${quote.id}`)
+      try {
+        const quotes = await quotesApi.generate(inquiry.id)
+        toast.success(quotes.length > 1 ? `${quotes.length} carrier quotes generated` : "Quote generated")
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 422) {
+          // No rate card matches this lane at all -- the inquiry itself was
+          // still created successfully, so route to the comparison page
+          // where ops can add a manual quote instead of losing the inquiry.
+          toast.error("No rate card matches this lane. Enter a rate manually on the next screen.")
+        } else {
+          throw err
+        }
+      }
+      navigate(`/inquiries/${inquiry.id}/quotes`)
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not generate a quote.")
     } finally {

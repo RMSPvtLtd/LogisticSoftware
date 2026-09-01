@@ -25,6 +25,19 @@ class Quote(TimestampMixin, Base):
         portable_enum(QuoteStatus), nullable=False, default=QuoteStatus.DRAFT
     )
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    # Which airline/carrier this quote is priced from -- snapshotted from
+    # RateCard.carrier at generation time for an auto-generated quote, or
+    # typed in directly for a manual one (services.quotes.create_manual_quote).
+    # Not the same thing as Shipment.carrier, which is only known once the
+    # job is actually booked; this is "which offer is this", not "who is
+    # physically carrying the cargo" (though normally they end up the same).
+    carrier: Mapped[str | None] = mapped_column(String(120))
+    # True for a quote created via services.quotes.create_manual_quote (ops
+    # typed the rate in directly, no matching RateCard). Lets
+    # generate_quotes tell "one of my own auto-priced siblings, safe to
+    # supersede on regeneration" apart from "an admin's manual quote,
+    # never touched by regeneration" without guessing from carrier name.
+    is_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
     markup_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
     # Optional, default zero -- no real Raaziq document seen so far shows a
@@ -65,12 +78,31 @@ class Quote(TimestampMixin, Base):
 
     @property
     def shipment_stage(self) -> "ShipmentStage | None":  # noqa: F821
-        """The current stage of this quote's shipment, or None if this quote
-        has been superseded by a later re-quote (see `services.quotes`).
+        """The current stage of this quote's inquiry's shipment.
+
+        Goes through `self.inquiry.shipment`, NOT `self.shipment` --
+        `Shipment.quote_id` is only ever set once a quote is actually
+        accepted (see `services.quotes.accept_quote`), so `self.shipment`
+        reads None for every quote that's merely one of several pending
+        carrier offers, which is the common case before acceptance. The
+        inquiry's shipment row exists from the moment the inquiry was filed,
+        independent of which (if any) quote has been accepted yet.
+
         Read by `services.quotes.override_line_items` to gate editing, and
         exposed on `QuoteRead` so the frontend doesn't need a second request
         to know whether editing is still allowed."""
-        return self.shipment.stage if self.shipment else None
+        return self.inquiry.shipment.stage if self.inquiry.shipment else None
+
+    @property
+    def origin(self) -> str:
+        """Convenience passthrough so QuoteRead can show the lane without a
+        second request for the inquiry -- used on the sibling-quote
+        comparison view (multiple quotes for one inquiry)."""
+        return self.inquiry.origin
+
+    @property
+    def destination(self) -> str:
+        return self.inquiry.destination
 
     @property
     def is_current(self) -> bool:

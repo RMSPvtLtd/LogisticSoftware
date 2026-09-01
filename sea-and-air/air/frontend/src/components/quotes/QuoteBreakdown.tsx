@@ -87,6 +87,12 @@ export function QuoteBreakdown({ quoteId }: { quoteId: number }) {
             <span className="text-sm font-medium text-foreground">
               Q-{q.root_quote_id ?? q.id} Rev {q.revision_number}
             </span>
+            {q.carrier && <Badge variant="outline">{q.carrier}</Badge>}
+            {q.is_manual && (
+              <Badge variant="outline" className="text-[10px]">
+                Manual
+              </Badge>
+            )}
             {!q.is_current && <Badge variant="secondary">Superseded</Badge>}
           </div>
           {inquiry.data && (
@@ -429,9 +435,11 @@ function ActionsBar({
   async function handleGenerateRevision() {
     setRevising(true)
     try {
-      const revision = await quotesApi.generate(quote.inquiry_id)
-      toast.success(`Q-${revision.root_quote_id ?? revision.id} Rev ${revision.revision_number} created`)
-      navigate(`/quotes/${revision.id}`)
+      const revisions = await quotesApi.generate(quote.inquiry_id)
+      toast.success(revisions.length > 1 ? `${revisions.length} carrier quotes regenerated` : "New revision created")
+      // generate can produce several sibling quotes (one per carrier) --
+      // go to the comparison view rather than assuming there's just one.
+      navigate(`/inquiries/${quote.inquiry_id}/quotes`)
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not generate a new revision.")
     } finally {

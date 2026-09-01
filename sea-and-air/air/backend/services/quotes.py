@@ -28,6 +28,32 @@ Line-item editing (`override_line_items`) is independent of quote status --
 it's gated on the *shipment's* stage instead (see that function's
 docstring): pricing can be corrected any time up until the shipment is
 invoiced to the customer, not just while the quote is still a draft.
+
+Parallel (multi-carrier) quotes: `generate_quotes` prices EVERY carrier with
+a currently-valid rate card for the inquiry's lane/mode (`services.pricing
+.price_all_matching`), not just the single best match -- one sibling Quote
+per carrier, so a customer can compare offers and pick one. This is a
+different kind of multiplicity from the revision chain above: a revision
+replaces one offer with a re-priced version of itself (same carrier, same
+`root_quote_id` lineage); siblings are competing offers from different
+carriers that happen to exist at the same time. Both mechanisms reuse the
+same `superseded_at` field for "no longer a live option" -- a revision
+supersedes its own predecessor, and `accept_quote` supersedes every OTHER
+still-open sibling the moment one is accepted (a job is open now; the rest
+are moot). `Quote.carrier` distinguishes siblings; `revision_number`/
+`root_quote_id` still track each carrier's own re-quote history independently.
+`generate_quotes` only ever manages quotes it created itself (`is_manual=
+False`) -- a quote created by `create_manual_quote` (ops typed a rate in by
+hand, e.g. when no rate card matches) is a fully independent, additional
+sibling that auto-regeneration never touches or supersedes.
+
+`Shipment.quote_id` (unique) is set in exactly one place: `accept_quote`.
+Before acceptance it stays null even once quotes exist -- there can be
+several live sibling offers and no "the" quote yet, so nothing before
+acceptance can meaningfully own that single-valued pointer. Every place that
+used to read `quote.shipment` to find the shipment now goes through
+`quote.inquiry.shipment` instead, which exists from the moment the inquiry
+was filed and doesn't depend on any quote being the accepted one.
 """
 
 from dataclasses import dataclass
@@ -39,14 +65,14 @@ from sqlalchemy.orm import Session
 
 from config import get_settings
 from utils.errors import InvalidMoneyAmount, InvalidQuoteState, NotFound, QuoteExpired
-from models.enums import EventSource, QuoteStatus, ReferenceType, ShipmentStage
+from models.enums import ChargeKind, EventSource, QuoteStatus, ReferenceType, ShipmentStage
 from models.inquiry import Inquiry
 from models.quote import Quote, QuoteLineItem
 from models.shipment import Shipment, ShipmentReference
 from schemas.money import MAX_MONEY
 from services.email import send_pdf_email
 from services.pdf_documents import render_quote_pdf
-from services.pricing import price_inquiry
+from services.pricing import price_all_matching
 from services.shipments import allocate_job_number
 from services.transitions import advance_stage, record_note
 
@@ -139,49 +165,8 @@ def _assert_total_is_sane(total: Decimal) -> None:
         raise InvalidMoneyAmount(f"Quote total would exceed the maximum supported amount ({MAX_MONEY}).")
 
 
-def generate_quote(session: Session, inquiry_id: int, *, today: date | None = None) -> Quote:
-    today = today or date.today()
-    inquiry = session.get(Inquiry, inquiry_id)
-    if inquiry is None:
-        raise NotFound(f"Inquiry {inquiry_id} not found")
-    if inquiry.shipment is None:
-        # Every Inquiry gets a Shipment row at creation (services.inquiries) --
-        # this would only be missing for data created before that existed.
-        raise NotFound(f"Inquiry {inquiry_id} has no tracking record")
-
-    # Row-locked on PostgreSQL so a concurrent accept_quote on the same
-    # inquiry can't race with this repointing quote_id underneath it.
-    shipment_stmt = select(Shipment).where(Shipment.id == inquiry.shipment.id)
-    if session.bind.dialect.name == "postgresql":
-        shipment_stmt = shipment_stmt.with_for_update()
-    shipment = session.execute(shipment_stmt).scalar_one()
-
-    old_quote: Quote | None = None
-    if shipment.quote_id is not None:
-        old_quote = session.get(Quote, shipment.quote_id)
-        if old_quote is not None and old_quote.status == QuoteStatus.ACCEPTED:
-            # Fixes a latent bug: this used to silently repoint quote_id away
-            # from a quote that already has an open job. Once accepted, an
-            # inquiry can never be re-quoted -- file a new inquiry instead.
-            raise InvalidQuoteState(
-                f"Inquiry {inquiry_id} already has an accepted quote ({_quote_ref(old_quote)}) "
-                "with an open job; it cannot be re-quoted"
-            )
-
-    settings = get_settings()
-    priced = price_inquiry(session, inquiry, today=today)
-
-    quote = Quote(
-        inquiry_id=inquiry.id,
-        status=QuoteStatus.DRAFT,
-        currency=priced.currency,
-        valid_until=today + timedelta(days=settings.quote_validity_days),
-        tax_amount=Decimal("0"),
-        discount_amount=Decimal("0"),
-        revision_number=(old_quote.revision_number + 1) if old_quote else 1,
-        root_quote_id=(old_quote.root_quote_id or old_quote.id) if old_quote else None,
-    )
-    for line in priced.line_items:
+def _build_quote_line_items(quote: Quote, line_items) -> None:
+    for line in line_items:
         quote.line_items.append(
             QuoteLineItem(
                 kind=line.kind,
@@ -194,29 +179,225 @@ def generate_quote(session: Session, inquiry_id: int, *, today: date | None = No
                 is_manual_override=False,
             )
         )
-    recalculate_totals(quote)
 
-    session.add(quote)
-    session.flush()
 
-    if old_quote is not None:
-        # A revision: freeze the old row permanently rather than mutating it.
-        old_quote.superseded_at = datetime.now(timezone.utc)
+def _assert_inquiry_not_already_won(session: Session, inquiry_id: int) -> None:
+    """Shared guard for generate_quotes and create_manual_quote: once ANY
+    quote for this inquiry (auto or manual, whichever carrier) has been
+    accepted, a job is already open from it -- the inquiry can never be
+    re-quoted at all, auto or manual. File a new inquiry instead."""
+    accepted = session.execute(
+        select(Quote).where(
+            Quote.inquiry_id == inquiry_id,
+            Quote.superseded_at.is_(None),
+            Quote.status == QuoteStatus.ACCEPTED,
+        )
+    ).scalar_one_or_none()
+    if accepted is not None:
+        raise InvalidQuoteState(
+            f"Inquiry {inquiry_id} already has an accepted quote ({_quote_ref(accepted)}) "
+            "with an open job; it cannot be re-quoted"
+        )
+
+
+def _locked_shipment_for_inquiry(session: Session, inquiry: Inquiry) -> Shipment:
+    # Row-locked on PostgreSQL so a concurrent accept_quote on the same
+    # inquiry can't race with a batch generation underneath it.
+    stmt = select(Shipment).where(Shipment.id == inquiry.shipment.id)
+    if session.bind.dialect.name == "postgresql":
+        stmt = stmt.with_for_update()
+    return session.execute(stmt).scalar_one()
+
+
+def generate_quotes(session: Session, inquiry_id: int, *, today: date | None = None) -> list[Quote]:
+    """Prices every carrier with a currently-valid rate card for this
+    inquiry's lane/mode (`services.pricing.price_all_matching`) and returns
+    one sibling Quote per carrier -- see the module docstring's "Parallel
+    (multi-carrier) quotes" section for how this interacts with the
+    per-carrier revision chain, manual quotes, and acceptance.
+
+    Raises NoApplicableRate (unchanged from the single-card days) only when
+    NO carrier has a matching rate card at all -- the caller's fallback in
+    that case is `create_manual_quote`, not a retry here.
+    """
+    today = today or date.today()
+    inquiry = session.get(Inquiry, inquiry_id)
+    if inquiry is None:
+        raise NotFound(f"Inquiry {inquiry_id} not found")
+    if inquiry.shipment is None:
+        # Every Inquiry gets a Shipment row at creation (services.inquiries) --
+        # this would only be missing for data created before that existed.
+        raise NotFound(f"Inquiry {inquiry_id} has no tracking record")
+
+    shipment = _locked_shipment_for_inquiry(session, inquiry)
+    _assert_inquiry_not_already_won(session, inquiry_id)
+
+    settings = get_settings()
+    priced_list = price_all_matching(session, inquiry, today=today)
+
+    # Only this function's own past output is eligible to be superseded by
+    # this function -- a manual quote (is_manual=True) is a fully separate
+    # sibling that auto-regeneration never touches (see module docstring).
+    current_auto = list(
+        session.execute(
+            select(Quote).where(
+                Quote.inquiry_id == inquiry_id,
+                Quote.superseded_at.is_(None),
+                Quote.is_manual.is_(False),
+            )
+        ).scalars()
+    )
+    current_by_carrier = {q.carrier: q for q in current_auto}
+
+    pairs: list[tuple[Quote, Quote | None]] = []
+    for priced in priced_list:
+        old = current_by_carrier.pop(priced.carrier, None)
+        quote = Quote(
+            inquiry_id=inquiry.id,
+            status=QuoteStatus.DRAFT,
+            currency=priced.currency,
+            carrier=priced.carrier,
+            is_manual=False,
+            valid_until=today + timedelta(days=settings.quote_validity_days),
+            tax_amount=Decimal("0"),
+            discount_amount=Decimal("0"),
+            revision_number=(old.revision_number + 1) if old else 1,
+            root_quote_id=(old.root_quote_id or old.id) if old else None,
+        )
+        _build_quote_line_items(quote, priced.line_items)
+        recalculate_totals(quote)
+        session.add(quote)
+        pairs.append((quote, old))
+
+    session.flush()  # assigns ids -- _quote_ref below needs them
+
+    now = datetime.now(timezone.utc)
+    for quote, old in pairs:
+        if old is not None:
+            old.superseded_at = now
+            record_note(
+                session, shipment, actor="system",
+                note=f"{_quote_ref(quote)} created, superseding {_quote_ref(old)}.",
+                source=EventSource.SYSTEM, is_internal=True,
+            )
+    for dropped in current_by_carrier.values():
+        # This carrier matched a previous generation but not this one (e.g.
+        # its rate card expired) -- no successor, just no longer offered.
+        dropped.superseded_at = now
         record_note(
             session, shipment, actor="system",
-            note=f"{_quote_ref(quote)} created, superseding {_quote_ref(old_quote)}.",
+            note=f"{_quote_ref(dropped)} is no longer offered: no matching rate card for its carrier.",
             source=EventSource.SYSTEM, is_internal=True,
         )
 
-    shipment.quote_id = quote.id
     if shipment.stage == ShipmentStage.INQUIRY:
-        # First quote for this inquiry -> advance the tracking record.
-        # Re-quoting later (revisions) just repoints quote_id above without
+        # First batch for this inquiry -> advance the tracking record.
+        # Regenerating later just supersedes/replaces siblings above without
         # moving the stage again.
+        carriers = ", ".join(quote.carrier or "unspecified carrier" for quote, _ in pairs)
         advance_stage(
             session, shipment, ShipmentStage.QUOTATION,
-            actor="system", note=f"Quote #{quote.id} generated.", source=EventSource.SYSTEM,
+            actor="system", note=f"{len(pairs)} quote(s) generated ({carriers}).", source=EventSource.SYSTEM,
         )
+    session.flush()
+    return [quote for quote, _ in pairs]
+
+
+def generate_quote(session: Session, inquiry_id: int, *, today: date | None = None) -> Quote:
+    """Back-compat convenience for the common single-carrier case (still the
+    overwhelming majority of this codebase's tests and the seed script):
+    generates the full carrier batch and returns just the first quote. New
+    code that needs to show every carrier option should call
+    `generate_quotes` directly instead."""
+    return generate_quotes(session, inquiry_id, today=today)[0]
+
+
+@dataclass(frozen=True)
+class ManualLineItem:
+    kind: ChargeKind
+    description: str
+    quantity: Decimal
+    unit_price: Decimal
+    amount: Decimal
+
+
+def create_manual_quote(
+    session: Session,
+    inquiry_id: int,
+    *,
+    carrier: str,
+    currency: str,
+    line_items: list[ManualLineItem],
+    today: date | None = None,
+) -> Quote:
+    """Lets ops price a quote by hand -- typing in today's rate directly,
+    the way filling in one rate-card break by hand would -- for a carrier
+    with no matching rate card, or just another offer ops wants to add
+    alongside the auto-priced ones. The standard markup is still applied on
+    top via `recalculate_totals` (same as every other quote in this app --
+    ops enters base rates, not the final marked-up customer price, exactly
+    like a rate card break); `amount` here plays the role `calculated_total`
+    plays for an engine-priced line.
+
+    Always a fresh, independent lineage (revision_number=1, root_quote_id=
+    None, is_manual=True): never supersedes and is never superseded by
+    `generate_quotes`'s auto-regeneration -- ops manages it entirely by hand
+    (edit via `override_line_items`, remove via `reject_quote`).
+    """
+    today = today or date.today()
+    if not line_items:
+        raise InvalidQuoteState("A manual quote needs at least one line item")
+
+    inquiry = session.get(Inquiry, inquiry_id)
+    if inquiry is None:
+        raise NotFound(f"Inquiry {inquiry_id} not found")
+    if inquiry.shipment is None:
+        raise NotFound(f"Inquiry {inquiry_id} has no tracking record")
+
+    shipment = _locked_shipment_for_inquiry(session, inquiry)
+    _assert_inquiry_not_already_won(session, inquiry_id)
+
+    settings = get_settings()
+    quote = Quote(
+        inquiry_id=inquiry.id,
+        status=QuoteStatus.DRAFT,
+        currency=currency,
+        carrier=carrier,
+        is_manual=True,
+        valid_until=today + timedelta(days=settings.quote_validity_days),
+        tax_amount=Decimal("0"),
+        discount_amount=Decimal("0"),
+        revision_number=1,
+        root_quote_id=None,
+    )
+    for li in line_items:
+        amount = _money(li.amount)
+        quote.line_items.append(
+            QuoteLineItem(
+                kind=li.kind,
+                description=li.description,
+                quantity=li.quantity,
+                unit_price=li.unit_price,
+                calculated_total=amount,
+                final_total=amount,
+                markup_amount=_money(amount * settings.default_markup_percent / Decimal("100")),
+                is_manual_override=False,
+            )
+        )
+    recalculate_totals(quote)
+    session.add(quote)
+    session.flush()
+
+    if shipment.stage == ShipmentStage.INQUIRY:
+        advance_stage(
+            session, shipment, ShipmentStage.QUOTATION,
+            actor="system", note=f"{_quote_ref(quote)} (manual, {carrier}) generated.", source=EventSource.SYSTEM,
+        )
+    record_note(
+        session, shipment, actor="ops",
+        note=f"{_quote_ref(quote)} added manually for carrier {carrier}.",
+        source=EventSource.SYSTEM, is_internal=True,
+    )
     session.flush()
     return quote
 
@@ -398,6 +579,22 @@ def accept_quote(session: Session, quote_id: int, actor: str, *, today: date | N
         session, shipment, actor=actor,
         note=f"{_quote_ref(quote)} accepted.", source=EventSource.SYSTEM, is_internal=True,
     )
+
+    # Every other still-open sibling for this inquiry (a different carrier,
+    # or a manual quote) is now moot -- a job is open from this one instead.
+    # Reuses superseded_at for that meaning too (see module docstring).
+    siblings_stmt = select(Quote).where(
+        Quote.inquiry_id == quote.inquiry_id, Quote.id != quote.id, Quote.superseded_at.is_(None)
+    )
+    superseded_at = datetime.now(timezone.utc)
+    for sibling in session.execute(siblings_stmt).scalars():
+        sibling.superseded_at = superseded_at
+        record_note(
+            session, shipment, actor=actor,
+            note=f"{_quote_ref(sibling)} superseded: {_quote_ref(quote)} was accepted instead.",
+            source=EventSource.SYSTEM, is_internal=True,
+        )
+
     session.flush()
     return shipment
 
@@ -405,12 +602,15 @@ def accept_quote(session: Session, quote_id: int, actor: str, *, today: date | N
 def reject_quote(
     session: Session, quote_id: int, *, reason: str, actor: str, today: date | None = None
 ) -> Quote:
-    """Ops-only rejection (see plan: the customer portal's quote page stays
-    read-only). Same row-locking and lazy-expiry pattern as accept_quote, so
-    a quote can't be rejected and accepted by two concurrent requests. Only
+    """Ops-only rejection -- the customer portal can accept a sibling quote
+    (see api/customer_portal.py) but never rejects one directly; declining
+    an offer there just means picking a different sibling or not accepting
+    any. Same row-locking and lazy-expiry pattern as accept_quote, so a
+    quote can't be rejected and accepted by two concurrent requests. Only
     valid from draft/sent -- an accepted quote can never "silently become
     rejected", and an already-rejected/expired quote is terminal (the way
-    forward is a new revision via generate_quote, not un-rejecting this row).
+    forward is a new revision via generate_quotes, or a manual quote, not
+    un-rejecting this row).
     """
     today = today or date.today()
     if not reason or not reason.strip():
@@ -434,9 +634,14 @@ def reject_quote(
     quote.rejected_by = actor
     quote.rejected_at = datetime.now(timezone.utc)
 
-    if quote.shipment is not None:
+    # Not quote.shipment -- see Quote.shipment_stage's docstring: that FK is
+    # only set once a quote is accepted, so it would be None here for the
+    # ordinary case of rejecting an offer that was never accepted, silently
+    # dropping the audit note. The inquiry's shipment always exists.
+    shipment = quote.inquiry.shipment
+    if shipment is not None:
         record_note(
-            session, quote.shipment, actor=actor,
+            session, shipment, actor=actor,
             note=f"{_quote_ref(quote)} rejected: {reason}", source=EventSource.SYSTEM, is_internal=True,
         )
     session.flush()

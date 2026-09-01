@@ -1,8 +1,9 @@
 from datetime import date
+from decimal import Decimal
 
 from models.enums import EventSource, ShipmentStage, next_stage
 from services.invoices import create_invoice_from_quote
-from services.quotes import accept_quote, generate_quote
+from services.quotes import accept_quote, generate_quote, generate_quotes
 from services.transitions import advance_stage
 from factories import make_company, make_customer, make_customer_with_portal, make_inquiry, simple_rate_card
 
@@ -151,6 +152,79 @@ def test_quotes_are_scoped_to_the_logged_in_customer(client, db_session):
 
     r_detail = client.get(f"/customer/quotes/{other_quote.id}", headers=_auth_headers(token))
     assert r_detail.status_code == 404
+
+
+def test_customer_can_accept_their_own_quote(client, db_session):
+    mine = make_customer_with_portal(db_session, username="orient.traders")
+    simple_rate_card(db_session)
+    inquiry = make_inquiry(db_session, mine)
+    # No today= override here -- this quote is accepted through the HTTP
+    # endpoint, which has no today parameter and always checks expiry
+    # against the real current date, so its valid_until must be relative to
+    # that (unlike the direct-service-call tests elsewhere, which use the
+    # fixed TODAY throughout and never cross the real clock).
+    quote = generate_quote(db_session, inquiry.id)
+    db_session.commit()
+
+    token = _login(client, "orient.traders")
+    r = client.post(f"/customer/quotes/{quote.id}/accept", headers=_auth_headers(token))
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["job_number"] is not None
+    assert body["stage"] == "job_opening"
+
+
+def test_customer_cannot_accept_another_customers_quote(client, db_session):
+    mine = make_customer_with_portal(db_session, username="orient.traders")
+    someone_else = make_customer(db_session, email="other@example.com")
+    simple_rate_card(db_session)
+    other_inquiry = make_inquiry(db_session, someone_else)
+    other_quote = generate_quote(db_session, other_inquiry.id, today=TODAY)
+    db_session.commit()
+
+    token = _login(client, "orient.traders")
+    r = client.post(f"/customer/quotes/{other_quote.id}/accept", headers=_auth_headers(token))
+
+    assert r.status_code == 404
+
+
+def test_customer_accepting_one_sibling_quote_supersedes_the_others(client, db_session):
+    mine = make_customer_with_portal(db_session, username="orient.traders")
+    simple_rate_card(db_session, carrier="PIA", rate=Decimal("5.00"))
+    simple_rate_card(db_session, carrier="Emirates SkyCargo", rate=Decimal("7.00"))
+    inquiry = make_inquiry(db_session, mine)
+    quotes = generate_quotes(db_session, inquiry.id)  # no today= override, see note above
+    pia = next(q for q in quotes if q.carrier == "PIA")
+    emirates = next(q for q in quotes if q.carrier == "Emirates SkyCargo")
+    db_session.commit()
+
+    token = _login(client, "orient.traders")
+    r = client.post(f"/customer/quotes/{pia.id}/accept", headers=_auth_headers(token))
+    assert r.status_code == 200, r.text
+
+    db_session.refresh(emirates)
+    assert emirates.superseded_at is not None
+
+
+def test_customer_cannot_accept_an_already_accepted_quote_twice_from_a_different_quote(client, db_session):
+    mine = make_customer_with_portal(db_session, username="orient.traders")
+    simple_rate_card(db_session, carrier="PIA", rate=Decimal("5.00"))
+    simple_rate_card(db_session, carrier="Emirates SkyCargo", rate=Decimal("7.00"))
+    inquiry = make_inquiry(db_session, mine)
+    quotes = generate_quotes(db_session, inquiry.id)  # no today= override, see note above
+    pia = next(q for q in quotes if q.carrier == "PIA")
+    emirates = next(q for q in quotes if q.carrier == "Emirates SkyCargo")
+    db_session.commit()
+
+    token = _login(client, "orient.traders")
+    r1 = client.post(f"/customer/quotes/{pia.id}/accept", headers=_auth_headers(token))
+    assert r1.status_code == 200, r1.text
+
+    # Emirates is now superseded -- accepting it should fail, not silently
+    # open a second job for the same inquiry.
+    r2 = client.post(f"/customer/quotes/{emirates.id}/accept", headers=_auth_headers(token))
+    assert r2.status_code == 409, r2.text
 
 
 def test_invoices_are_scoped_to_the_logged_in_customer(client, db_session):

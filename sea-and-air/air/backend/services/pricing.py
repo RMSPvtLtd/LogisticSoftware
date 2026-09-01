@@ -40,6 +40,7 @@ class PricedLineItem:
 class PricedQuote:
     currency: str
     rate_card_id: int
+    carrier: str | None = None
     line_items: list[PricedLineItem] = field(default_factory=list)
     subtotal: Decimal = Decimal("0")
     markup_amount: Decimal = Decimal("0")
@@ -65,9 +66,9 @@ def compute_chargeable_weight(inquiry: Inquiry, settings: Settings) -> Decimal:
     return max(Decimal(inquiry.weight_kg), volumetric_weight)
 
 
-def _select_rate_card(session: Session, inquiry: Inquiry, today: date) -> RateCard:
+def _matching_rate_cards_stmt(inquiry: Inquiry, today: date):
     # When overlapping valid cards match, the card with the most recent valid_from wins.
-    stmt = (
+    return (
         select(RateCard)
         .where(
             RateCard.origin == inquiry.origin,
@@ -78,12 +79,41 @@ def _select_rate_card(session: Session, inquiry: Inquiry, today: date) -> RateCa
         )
         .order_by(RateCard.valid_from.desc())
     )
-    rate_card = session.execute(stmt).scalars().first()
+
+
+def _select_rate_card(session: Session, inquiry: Inquiry, today: date) -> RateCard:
+    rate_card = session.execute(_matching_rate_cards_stmt(inquiry, today)).scalars().first()
     if rate_card is None:
         raise NoApplicableRate(
             f"No valid rate card for {inquiry.origin} -> {inquiry.destination} ({inquiry.mode.value})"
         )
     return rate_card
+
+
+def _select_rate_cards(session: Session, inquiry: Inquiry, today: date) -> list[RateCard]:
+    """Every carrier with a currently-valid rate card for this lane/mode --
+    one card per carrier. When several valid cards share a carrier (e.g. ops
+    entered a corrected rate), only the one with the most recent valid_from
+    is kept, exactly like `_select_rate_card`'s single-card tie-break.
+    Cards with no carrier set collapse into a single `None`-keyed group, so
+    a lane with one anonymous card still yields exactly one quote.
+
+    Sorted by carrier name (case-insensitive), with the carrier-less group
+    last, so the resulting quotes always list in a stable, predictable order.
+    """
+    all_matches = list(session.execute(_matching_rate_cards_stmt(inquiry, today)).scalars())
+    if not all_matches:
+        raise NoApplicableRate(
+            f"No valid rate card for {inquiry.origin} -> {inquiry.destination} ({inquiry.mode.value})"
+        )
+
+    best_by_carrier: dict[str | None, RateCard] = {}
+    for card in all_matches:
+        # all_matches is already valid_from-desc, so the first card seen per
+        # carrier is that carrier's most recent one -- nothing to compare.
+        best_by_carrier.setdefault(card.carrier, card)
+
+    return sorted(best_by_carrier.values(), key=lambda c: (c.carrier is None, (c.carrier or "").lower()))
 
 
 def _bound_matches(value: Decimal, lower: Decimal | None, upper: Decimal | None) -> bool:
@@ -187,11 +217,11 @@ def _price_charge(
     )
 
 
-def price_inquiry(session: Session, inquiry: Inquiry, *, today: date | None = None) -> PricedQuote:
-    settings = get_settings()
-    today = today or date.today()
-
-    rate_card = _select_rate_card(session, inquiry, today)
+def _price_with_rate_card(rate_card: RateCard, inquiry: Inquiry, settings: Settings) -> PricedQuote:
+    """The actual pricing math, independent of how `rate_card` was chosen --
+    shared by `price_inquiry` (one best-matching card) and
+    `price_all_matching` (one card per carrier), so there's exactly one
+    implementation of the freight/charges/markup calculation."""
     chargeable_weight = compute_chargeable_weight(inquiry, settings)
     volume_cbm = Decimal(inquiry.volume_cbm)
 
@@ -211,8 +241,28 @@ def price_inquiry(session: Session, inquiry: Inquiry, *, today: date | None = No
     return PricedQuote(
         currency=rate_card.currency,
         rate_card_id=rate_card.id,
+        carrier=rate_card.carrier,
         line_items=line_items,
         subtotal=subtotal,
         markup_amount=markup_amount,
         total=total,
     )
+
+
+def price_inquiry(session: Session, inquiry: Inquiry, *, today: date | None = None) -> PricedQuote:
+    settings = get_settings()
+    today = today or date.today()
+    rate_card = _select_rate_card(session, inquiry, today)
+    return _price_with_rate_card(rate_card, inquiry, settings)
+
+
+def price_all_matching(session: Session, inquiry: Inquiry, *, today: date | None = None) -> list[PricedQuote]:
+    """One PricedQuote per carrier with a currently-valid rate card for this
+    lane/mode -- lets the customer compare offers from different airlines.
+    Raises NoApplicableRate (same as price_inquiry) only when NO carrier has
+    a matching card at all; a single carrier still returns a one-item list.
+    """
+    settings = get_settings()
+    today = today or date.today()
+    rate_cards = _select_rate_cards(session, inquiry, today)
+    return [_price_with_rate_card(rate_card, inquiry, settings) for rate_card in rate_cards]

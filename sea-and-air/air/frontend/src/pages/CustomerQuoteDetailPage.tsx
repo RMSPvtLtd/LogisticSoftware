@@ -1,12 +1,25 @@
-import { useParams } from "react-router-dom"
+import { useState } from "react"
+import { useNavigate, useParams } from "react-router-dom"
+import { toast } from "sonner"
+import { CheckCircle } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { LoadingState, ErrorState } from "@/components/shared/States"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { useAsync } from "@/hooks/useAsync"
 import { useCustomerAuth } from "@/hooks/useCustomerAuth"
-import { customerPortalApi } from "@/lib/api/client"
+import { ApiError, customerPortalApi } from "@/lib/api/client"
 import { formatDate, formatMoney } from "@/lib/format"
 
 const KIND_LABEL: Record<string, string> = {
@@ -26,6 +39,61 @@ const STATUS_LABEL: Record<string, string> = {
   rejected: "Rejected",
 }
 
+function AcceptQuoteCard({ quoteId, onAccepted }: { quoteId: number; onAccepted: () => void }) {
+  const { token } = useCustomerAuth()
+  const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
+  const [accepting, setAccepting] = useState(false)
+
+  async function handleAccept() {
+    setAccepting(true)
+    try {
+      const shipment = await customerPortalApi.acceptQuote(token!, quoteId)
+      toast.success("Quote accepted -- your job has been opened")
+      setOpen(false)
+      onAccepted()
+      navigate(`/customer/shipments/${shipment.id}`)
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not accept this quote.")
+    } finally {
+      setAccepting(false)
+    }
+  }
+
+  return (
+    <Card className="border-primary/30">
+      <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+        <p className="text-sm text-muted-foreground">Ready to proceed with this quote?</p>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button className="gap-1.5">
+              <CheckCircle size={16} />
+              Accept this quote
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Accept this quote?</DialogTitle>
+              <DialogDescription>
+                This opens your shipment job. If there are other carrier options for this inquiry, they'll no longer
+                be available once you accept this one.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setOpen(false)} disabled={accepting}>
+                Cancel
+              </Button>
+              <Button onClick={handleAccept} disabled={accepting}>
+                {accepting ? "Accepting…" : "Accept quote"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function CustomerQuoteDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { token } = useCustomerAuth()
@@ -37,6 +105,7 @@ export function CustomerQuoteDetailPage() {
   if (quote.error || !quote.data) return <ErrorState message={quote.error ?? "Quote not found."} onRetry={quote.reload} />
 
   const q = quote.data
+  const canAccept = q.is_current && (q.status === "draft" || q.status === "sent")
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -45,15 +114,24 @@ export function CustomerQuoteDetailPage() {
         description={
           <span className="flex flex-wrap items-center gap-2">
             <Badge variant="outline">{STATUS_LABEL[q.status]}</Badge>
+            {q.carrier && <Badge variant="outline">{q.carrier}</Badge>}
             {!q.is_current && <Badge variant="secondary">Superseded</Badge>}
             <span>Valid until {formatDate(q.valid_until)}</span>
           </span>
         }
       />
 
-      {!q.is_current && (
+      {q.status === "accepted" && (
+        <div className="flex items-center gap-2 rounded-xl border border-status-success/20 bg-status-success/5 px-4 py-3 text-sm text-status-success">
+          <CheckCircle size={18} weight="fill" />
+          This quote has been accepted and your job has been opened.
+        </div>
+      )}
+
+      {!q.is_current && q.status !== "accepted" && (
         <div className="rounded-xl border border-border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
-          This revision has been superseded by a newer quote. Contact us if you need the current version.
+          This offer is no longer available -- either a newer revision replaced it, or a different carrier option
+          was accepted instead. Contact us if you have questions.
         </div>
       )}
 
@@ -62,6 +140,8 @@ export function CustomerQuoteDetailPage() {
           <span className="font-medium">Declined:</span> {q.rejected_reason}
         </div>
       )}
+
+      {canAccept && <AcceptQuoteCard quoteId={q.id} onAccepted={quote.reload} />}
 
       <Card>
         <CardHeader>

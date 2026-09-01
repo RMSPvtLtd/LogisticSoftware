@@ -143,10 +143,14 @@ export interface QuoteLineItem {
 export interface Quote {
   id: number
   inquiry_id: number
+  origin: string
+  destination: string
   status: QuoteStatus
   shipment_stage: ShipmentStage | null
   invoice_id: number | null
   currency: string
+  carrier: string | null
+  is_manual: boolean
   subtotal: string
   markup_amount: string
   tax_amount: string
@@ -169,6 +173,21 @@ export interface Quote {
 export interface QuoteAdjustments {
   tax_amount: string
   discount_amount: string
+}
+
+export interface ManualLineItemInput {
+  kind: ChargeKind
+  description: string
+  quantity: string
+  unit_price: string
+  amount: string
+}
+
+export interface ManualQuoteInput {
+  inquiry_id: number
+  carrier: string
+  currency: string
+  line_items: ManualLineItemInput[]
 }
 
 export interface LineItemOverride {

@@ -29,7 +29,12 @@ def test_generating_a_quote_advances_shipment_to_quotation(db_session):
     db_session.flush()
 
     assert inquiry.shipment.stage == ShipmentStage.QUOTATION
-    assert inquiry.shipment.quote_id == quote.id
+    # shipment.quote_id is set only on acceptance (services.quotes.accept_quote)
+    # -- not at generation time, so several sibling carrier quotes can exist
+    # with none of them yet "the" quote. shipment_stage reads through the
+    # inquiry instead (see Quote.shipment_stage's docstring).
+    assert inquiry.shipment.quote_id is None
+    assert quote.shipment_stage == ShipmentStage.QUOTATION
 
 
 def test_regenerating_a_quote_does_not_re_transition_the_shipment(db_session):
@@ -50,8 +55,8 @@ def test_regenerating_a_quote_does_not_re_transition_the_shipment(db_session):
     db_session.flush()
 
     assert inquiry.shipment.stage == ShipmentStage.QUOTATION
-    assert inquiry.shipment.quote_id == second_quote.id
-    assert inquiry.shipment.quote_id != first_quote.id
+    # Neither quote has been accepted -- shipment.quote_id stays unset for both.
+    assert inquiry.shipment.quote_id is None
     assert second_quote.revision_number == first_quote.revision_number + 1
     assert second_quote.root_quote_id == first_quote.id
     assert first_quote.superseded_at is not None

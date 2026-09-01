@@ -31,6 +31,7 @@ from schemas.quotes import QuoteRead
 from schemas.tracking import TrackingResult, from_shipment
 from utils.security import create_access_token, get_current_customer
 from services.customers import authenticate_customer, customer_quotes, customer_shipments
+from services.quotes import accept_quote
 
 router = APIRouter(prefix="/customer", tags=["customer-portal"])
 
@@ -104,6 +105,26 @@ def get_quote(
     if quote is None or quote.inquiry.customer_id != customer.id:
         raise NotFound(f"Quote {quote_id} not found")
     return quote
+
+
+@router.post("/quotes/{quote_id}/accept", response_model=CustomerShipmentSummary)
+def accept_quote_route(
+    quote_id: int, customer: Customer = Depends(get_current_customer), db: Session = Depends(get_db)
+) -> CustomerShipmentSummary:
+    """Lets the customer pick one of the (possibly several, one per carrier)
+    quotes offered on their inquiry -- see services.quotes.accept_quote,
+    which supersedes every other still-open sibling once one is accepted.
+    Reuses the same service function ops uses (POST /quotes/{id}/accept);
+    only the authorization scoping and the response shape differ, matching
+    every other read route in this router.
+    """
+    quote = db.get(Quote, quote_id)
+    if quote is None or quote.inquiry.customer_id != customer.id:
+        raise NotFound(f"Quote {quote_id} not found")
+    # actor is stored in a 120-char audit column -- customer.id (not email,
+    # unbounded up to 320 chars) keeps this always well within that limit.
+    shipment = accept_quote(db, quote_id, actor=f"customer#{customer.id}")
+    return shipment_summary(shipment)
 
 
 @router.get("/invoices", response_model=list[CustomerInvoiceSummary])

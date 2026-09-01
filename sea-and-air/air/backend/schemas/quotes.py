@@ -1,10 +1,17 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from models.enums import ChargeKind, QuoteStatus, ShipmentStage
 from schemas.money import MoneyAmount
+
+# QuoteLineItem.quantity/unit_price are NUMERIC(12,3)/NUMERIC(12,4) -- same
+# rationale as schemas.rate_cards' BreakBound/RateAmount: bounds mirror the
+# database columns so a value that passes validation can always be stored.
+ManualQuantity = Annotated[Decimal, Field(gt=Decimal("0"), max_digits=12, decimal_places=3)]
+ManualUnitPrice = Annotated[Decimal, Field(ge=Decimal("0"), max_digits=12, decimal_places=4)]
 
 
 class QuoteGenerateRequest(BaseModel):
@@ -32,10 +39,14 @@ class QuoteRead(BaseModel):
 
     id: int
     inquiry_id: int
+    origin: str
+    destination: str
     status: QuoteStatus
     shipment_stage: ShipmentStage | None
     invoice_id: int | None
     currency: str
+    carrier: str | None
+    is_manual: bool
     subtotal: Decimal
     markup_amount: Decimal
     tax_amount: Decimal
@@ -88,3 +99,22 @@ class QuoteClausesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     clauses: str | None = Field(default=None, max_length=4000)
+
+
+class ManualLineItemRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: ChargeKind
+    description: str = Field(min_length=1, max_length=200)
+    quantity: ManualQuantity
+    unit_price: ManualUnitPrice
+    amount: MoneyAmount
+
+
+class QuoteManualCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    inquiry_id: int
+    carrier: str = Field(min_length=1, max_length=120)
+    currency: str = Field(min_length=3, max_length=3)
+    line_items: list[ManualLineItemRequest] = Field(min_length=1, max_length=50)

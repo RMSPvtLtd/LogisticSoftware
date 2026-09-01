@@ -11,6 +11,7 @@ from schemas.quotes import (
     QuoteClausesRequest,
     QuoteGenerateRequest,
     QuoteLineItemsOverrideRequest,
+    QuoteManualCreateRequest,
     QuoteRead,
     QuoteRejectRequest,
 )
@@ -19,9 +20,11 @@ from utils.security import get_current_ops_user
 from services.pdf_documents import render_quote_pdf
 from services.quotes import (
     LineItemOverride,
+    ManualLineItem,
     accept_quote,
+    create_manual_quote,
     email_quote,
-    generate_quote,
+    generate_quotes,
     list_revisions,
     override_line_items,
     reject_quote,
@@ -33,9 +36,25 @@ from services.quotes import (
 router = APIRouter(prefix="/quotes", tags=["quotes"], dependencies=[Depends(get_current_ops_user)])
 
 
-@router.post("/generate", response_model=QuoteRead, status_code=201)
-def generate(payload: QuoteGenerateRequest, db: Session = Depends(get_db)) -> Quote:
-    return generate_quote(db, payload.inquiry_id)
+@router.post("/generate", response_model=list[QuoteRead], status_code=201)
+def generate(payload: QuoteGenerateRequest, db: Session = Depends(get_db)) -> list[Quote]:
+    """One quote per carrier with a currently-valid rate card for this
+    inquiry's lane/mode -- see services.quotes.generate_quotes."""
+    return generate_quotes(db, payload.inquiry_id)
+
+
+@router.post("/manual", response_model=QuoteRead, status_code=201)
+def create_manual(payload: QuoteManualCreateRequest, db: Session = Depends(get_db)) -> Quote:
+    line_items = [
+        ManualLineItem(
+            kind=li.kind, description=li.description, quantity=li.quantity,
+            unit_price=li.unit_price, amount=li.amount,
+        )
+        for li in payload.line_items
+    ]
+    return create_manual_quote(
+        db, payload.inquiry_id, carrier=payload.carrier, currency=payload.currency, line_items=line_items
+    )
 
 
 @router.get("", response_model=list[QuoteRead])

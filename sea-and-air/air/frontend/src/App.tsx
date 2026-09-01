@@ -24,6 +24,7 @@ import { WorkersAdminPage } from "@/pages/WorkersAdminPage"
 import { CustomersAdminPage } from "@/pages/CustomersAdminPage"
 import { RateCardsAdminPage } from "@/pages/RateCardsAdminPage"
 import { AirlineSchedulesAdminPage } from "@/pages/AirlineSchedulesAdminPage"
+import { InquiryQuotesPage } from "@/pages/InquiryQuotesPage"
 import { CustomerLoginPage } from "@/pages/CustomerLoginPage"
 import { CustomerShipmentsPage } from "@/pages/CustomerShipmentsPage"
 import { CustomerShipmentDetailPage } from "@/pages/CustomerShipmentDetailPage"
@@ -63,6 +64,7 @@ function App() {
             <Route path="/shipments/:id" element={<ShipmentDetailPage />} />
             <Route path="/shipments/:id/generate-invoice" element={<InvoicePreviewPage />} />
             <Route path="/quotes/new" element={<QuoteFlowPage />} />
+            <Route path="/inquiries/:id/quotes" element={<InquiryQuotesPage />} />
             <Route path="/quotes/:id" element={<QuoteFlowPage />} />
             <Route path="/invoices" element={<InvoiceListPage />} />
             <Route path="/invoices/:id" element={<InvoicePage />} />

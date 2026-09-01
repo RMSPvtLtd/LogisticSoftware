@@ -130,7 +130,11 @@ def _quote_to_document_data(session: Session, quote: Quote) -> _DocumentData:
     settings = get_settings()
     inquiry = quote.inquiry
     customer = inquiry.customer
-    shipment = quote.shipment
+    # Not quote.shipment -- see Quote.shipment_stage's docstring: that FK is
+    # only set once THIS quote is accepted, but a not-yet-accepted quote
+    # (the common case for a PDF preview) still has real shipment/reference
+    # data available through the inquiry, independent of quote_id.
+    shipment = inquiry.shipment
 
     references = [(r.type.value, r.value) for r in shipment.references] if shipment else []
 

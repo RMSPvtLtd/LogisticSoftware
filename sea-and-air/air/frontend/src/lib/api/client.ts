@@ -22,6 +22,7 @@ import type {
   Invoice,
   LineItemOverride,
   LoginResponse,
+  ManualQuoteInput,
   OpsLoginResponse,
   OpsUser,
   Priority,
@@ -196,8 +197,14 @@ export const inquiriesApi = {
 export const quotesApi = {
   list: () => opsRequest<Quote[]>("/quotes"),
   get: (id: number) => opsRequest<Quote>(`/quotes/${id}`),
+  // One quote per carrier with a currently-valid rate card for the lane --
+  // always a list, even when only one carrier matches.
   generate: (inquiryId: number) =>
-    opsRequest<Quote>("/quotes/generate", { method: "POST", body: JSON.stringify({ inquiry_id: inquiryId }) }),
+    opsRequest<Quote[]>("/quotes/generate", { method: "POST", body: JSON.stringify({ inquiry_id: inquiryId }) }),
+  createManual: (payload: ManualQuoteInput) =>
+    opsRequest<Quote>("/quotes/manual", { method: "POST", body: JSON.stringify(payload) }),
+  forInquiry: (inquiryId: number) =>
+    opsRequest<Quote[]>("/quotes").then((quotes) => quotes.filter((q) => q.inquiry_id === inquiryId)),
   overrideLineItems: (id: number, overrides: LineItemOverride[]) =>
     opsRequest<Quote>(`/quotes/${id}/line-items`, { method: "PATCH", body: JSON.stringify({ overrides }) }),
   setAdjustments: (id: number, taxAmount: string, discountAmount: string) =>
@@ -428,6 +435,11 @@ export const customerPortalApi = {
     request<TrackingResult>(`/customer/shipments/${id}`, { headers: authHeader(token) }),
   quotes: (token: string) => request<Quote[]>("/customer/quotes", { headers: authHeader(token) }),
   quote: (token: string, id: number) => request<Quote>(`/customer/quotes/${id}`, { headers: authHeader(token) }),
+  acceptQuote: (token: string, id: number) =>
+    request<CustomerShipmentSummary>(`/customer/quotes/${id}/accept`, {
+      method: "POST",
+      headers: authHeader(token),
+    }),
   invoices: (token: string) =>
     request<CustomerInvoiceSummary[]>("/customer/invoices", { headers: authHeader(token) }),
   invoice: (token: string, id: number) =>
