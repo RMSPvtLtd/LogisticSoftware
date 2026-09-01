@@ -278,6 +278,25 @@ def set_quote_adjustments(
     return quote
 
 
+def set_quote_clauses(session: Session, quote_id: int, *, clauses: str | None, today: date | None = None) -> Quote:
+    """Set the quote's free-text trading terms/clauses, printed on the quote
+    PDF and copied onto any invoice generated from it afterward
+    (Invoice.clauses_snapshot). Same editability rule as set_quote_adjustments
+    -- blocked only once the shipment has been invoiced. Doesn't touch
+    totals, so no recalculate_totals call."""
+    today = today or date.today()
+    quote = _get_quote(session, quote_id)
+    _apply_lazy_expiry(quote, today)
+    _assert_not_superseded(quote)
+
+    if quote.shipment is not None and quote.shipment.stage == ShipmentStage.INVOICE_TO_CUSTOMER:
+        raise InvalidQuoteState(f"Quote {quote.id} cannot be edited: its shipment has already been invoiced")
+
+    quote.clauses = clauses
+    session.flush()
+    return quote
+
+
 def send_quote(session: Session, quote_id: int, *, today: date | None = None) -> Quote:
     """MVP behavior: marks the quote as sent only; no email or PDF is generated."""
     today = today or date.today()

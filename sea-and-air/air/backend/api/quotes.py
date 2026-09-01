@@ -8,6 +8,7 @@ from models.ops_user import OpsUser
 from models.quote import Quote
 from schemas.quotes import (
     QuoteAdjustmentsRequest,
+    QuoteClausesRequest,
     QuoteGenerateRequest,
     QuoteLineItemsOverrideRequest,
     QuoteRead,
@@ -25,6 +26,7 @@ from services.quotes import (
     reject_quote,
     send_quote,
     set_quote_adjustments,
+    set_quote_clauses,
 )
 
 router = APIRouter(prefix="/quotes", tags=["quotes"], dependencies=[Depends(get_current_ops_user)])
@@ -63,6 +65,11 @@ def patch_adjustments(quote_id: int, payload: QuoteAdjustmentsRequest, db: Sessi
     return set_quote_adjustments(
         db, quote_id, tax_amount=payload.tax_amount, discount_amount=payload.discount_amount
     )
+
+
+@router.patch("/{quote_id}/clauses", response_model=QuoteRead)
+def patch_clauses(quote_id: int, payload: QuoteClausesRequest, db: Session = Depends(get_db)) -> Quote:
+    return set_quote_clauses(db, quote_id, clauses=payload.clauses)
 
 
 @router.get("/{quote_id}/pdf")

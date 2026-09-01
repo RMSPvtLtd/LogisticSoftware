@@ -139,6 +139,7 @@ def create_invoice_from_quote(
         job_number_snapshot=shipment.job_number,
         references_snapshot=references_snapshot,
         remarks=remarks,
+        clauses_snapshot=quote.clauses,
     )
     # Added to the session before appending line items / setting the
     # quote<->invoice back-populate, so autoflush doesn't warn about a

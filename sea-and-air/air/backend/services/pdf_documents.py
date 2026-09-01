@@ -100,6 +100,7 @@ class _DocumentData:
     show_bank_details: bool = False
     remarks: str | None = None
     cargo_type: str | None = None
+    clauses: str | None = None
 
 
 def _esc(value: object) -> str:
@@ -164,6 +165,7 @@ def _quote_to_document_data(session: Session, quote: Quote) -> _DocumentData:
         valid_until=quote.valid_until,
         show_bank_details=False,
         cargo_type=inquiry.cargo_type,
+        clauses=quote.clauses,
     )
 
 
@@ -205,6 +207,7 @@ def _invoice_to_document_data(invoice: Invoice) -> _DocumentData:
         show_bank_details=True,
         remarks=invoice.remarks,
         cargo_type=invoice.cargo_type_snapshot,
+        clauses=invoice.clauses_snapshot,
     )
 
 
@@ -416,6 +419,14 @@ def _build_pdf(data: _DocumentData) -> bytes:
         ]))
         story.append(Paragraph("BANK DETAILS", label_style))
         story.append(bank_table)
+        story.append(Spacer(1, 8))
+
+    if data.clauses:
+        story.append(Paragraph("TERMS &amp; CONDITIONS", label_style))
+        story.append(Spacer(1, 3))
+        # Escaped first, then newlines turned into literal <br/> -- safe
+        # because escaping already neutralized any markup in the user text.
+        story.append(Paragraph(_esc(data.clauses).replace("\n", "<br/>"), small_style))
         story.append(Spacer(1, 8))
 
     footer_bits = []

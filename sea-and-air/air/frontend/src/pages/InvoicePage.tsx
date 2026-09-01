@@ -239,6 +239,15 @@ export function InvoicePage() {
               <CardContent className="text-sm text-foreground">{inv.remarks}</CardContent>
             </Card>
           )}
+
+          {inv.clauses_snapshot && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Terms &amp; Conditions</CardTitle>
+              </CardHeader>
+              <CardContent className="whitespace-pre-wrap text-sm text-foreground">{inv.clauses_snapshot}</CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>

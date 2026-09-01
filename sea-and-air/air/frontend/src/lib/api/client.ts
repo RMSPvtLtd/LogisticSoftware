@@ -205,6 +205,8 @@ export const quotesApi = {
       method: "PATCH",
       body: JSON.stringify({ tax_amount: taxAmount, discount_amount: discountAmount }),
     }),
+  setClauses: (id: number, clauses: string | null) =>
+    opsRequest<Quote>(`/quotes/${id}/clauses`, { method: "PATCH", body: JSON.stringify({ clauses }) }),
   send: (id: number) => opsRequest<Quote>(`/quotes/${id}/send`, { method: "POST" }),
   accept: (id: number) => opsRequest<Shipment>(`/quotes/${id}/accept`, { method: "POST" }),
   reject: (id: number, reason: string) =>

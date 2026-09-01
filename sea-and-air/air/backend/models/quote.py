@@ -35,6 +35,10 @@ class Quote(TimestampMixin, Base):
     discount_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
     valid_until: Mapped[date] = mapped_column(Date, nullable=False)
+    # Free-text trading terms/legal clauses, printed on the quote PDF and
+    # copied onto any invoice generated from this quote (Invoice.clauses_snapshot)
+    # -- see services.quotes.set_quote_clauses.
+    clauses: Mapped[str | None] = mapped_column(Text)
 
     # --- rejection -- set only by services.quotes.reject_quote ---
     rejected_reason: Mapped[str | None] = mapped_column(Text)

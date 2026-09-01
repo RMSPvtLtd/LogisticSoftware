@@ -6,7 +6,7 @@ import pytest
 from utils.errors import InvalidCancellation, InvalidQuoteState, NotFound
 from models.enums import ChargeKind, InvoiceStatus, ShipmentStage
 from services.pdf_documents import render_invoice_pdf
-from services.quotes import accept_quote, generate_quote
+from services.quotes import accept_quote, generate_quote, set_quote_clauses
 from services.invoices import cancel_invoice, create_invoice_from_quote
 from services.transitions import advance_stage
 from factories import add_charge, make_company, make_customer, make_inquiry, simple_rate_card
@@ -54,6 +54,16 @@ def test_create_invoice_from_quote_accepts_remarks(db_session):
     )
 
     assert invoice.remarks == "Handle with care"
+
+
+def test_create_invoice_from_quote_copies_clauses(db_session):
+    company = make_company(db_session)
+    quote = _accepted_quote(db_session)
+    set_quote_clauses(db_session, quote.id, clauses="Freight subject to BIFA standard trading conditions.", today=TODAY)
+
+    invoice = create_invoice_from_quote(db_session, quote.id, company_id=company.id, today=TODAY)
+
+    assert invoice.clauses_snapshot == "Freight subject to BIFA standard trading conditions."
 
 
 def test_create_invoice_rejected_for_non_accepted_quote(db_session):

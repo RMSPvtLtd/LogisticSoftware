@@ -17,6 +17,7 @@ from services.quotes import (
     reject_quote,
     send_quote,
     set_quote_adjustments,
+    set_quote_clauses,
 )
 from services.transitions import advance_stage
 from factories import make_customer, make_inquiry, simple_rate_card
@@ -198,6 +199,35 @@ def test_quote_adjustments_endpoint(client, db_session, ops_headers):
     body = r.json()
     assert body["tax_amount"] == "12.50"
     assert body["discount_amount"] == "2.50"
+
+
+def test_set_quote_clauses(db_session):
+    quote = _quote(db_session)
+
+    updated = set_quote_clauses(db_session, quote.id, clauses="Payment due within 15 days.", today=TODAY)
+
+    assert updated.clauses == "Payment due within 15 days."
+
+
+def test_set_quote_clauses_blocked_once_shipment_invoiced(db_session):
+    quote = _quote(db_session)
+    shipment = accept_quote(db_session, quote.id, "ops", today=TODAY)
+    start = OPERATIONAL_STAGE_ORDER.index(ShipmentStage.JOB_OPENING) + 1
+    for stage in OPERATIONAL_STAGE_ORDER[start:]:
+        advance_stage(db_session, shipment, stage, actor="ops", note=None, source=EventSource.MANUAL)
+    assert shipment.stage == ShipmentStage.INVOICE_TO_CUSTOMER
+
+    with pytest.raises(InvalidQuoteState):
+        set_quote_clauses(db_session, quote.id, clauses="Too late", today=TODAY)
+
+
+def test_quote_clauses_endpoint(client, db_session, ops_headers):
+    quote = _quote(db_session)
+    db_session.commit()
+
+    r = client.patch(f"/quotes/{quote.id}/clauses", json={"clauses": "Standard trading terms apply."}, headers=ops_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["clauses"] == "Standard trading terms apply."
 
 
 # --- acceptance ---

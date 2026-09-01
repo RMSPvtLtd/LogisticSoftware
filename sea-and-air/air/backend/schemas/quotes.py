@@ -42,6 +42,7 @@ class QuoteRead(BaseModel):
     discount_amount: Decimal
     total: Decimal
     valid_until: date
+    clauses: str | None
     revision_number: int
     root_quote_id: int | None
     is_current: bool
@@ -81,3 +82,9 @@ class QuoteRejectRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     reason: str = Field(min_length=1, max_length=2000)
+
+
+class QuoteClausesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    clauses: str | None = Field(default=None, max_length=4000)

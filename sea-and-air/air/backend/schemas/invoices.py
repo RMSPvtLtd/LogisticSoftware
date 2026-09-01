@@ -60,6 +60,7 @@ class InvoiceRead(BaseModel):
     voyage_flight_number_snapshot: str | None
     job_number_snapshot: str | None
     remarks: str | None
+    clauses_snapshot: str | None
     created_at: datetime
     line_items: list[InvoiceLineItemRead]
 

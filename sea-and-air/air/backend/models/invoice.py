@@ -93,6 +93,7 @@ class Invoice(TimestampMixin, Base):
     # references (MAWB/HAWB/MBL/HBL/Form E/LC/...) as they stood at creation.
     references_snapshot: Mapped[str | None] = mapped_column(Text)
     remarks: Mapped[str | None] = mapped_column(Text)
+    clauses_snapshot: Mapped[str | None] = mapped_column(Text)
 
     quote: Mapped["Quote"] = relationship(back_populates="invoices")  # noqa: F821
     company: Mapped["Company"] = relationship()  # noqa: F821

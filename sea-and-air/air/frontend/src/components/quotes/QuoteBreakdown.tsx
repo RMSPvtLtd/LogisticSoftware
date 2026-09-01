@@ -99,6 +99,8 @@ export function QuoteBreakdown({ quoteId }: { quoteId: number }) {
 
       <SummaryCard quote={quote.data} onSaved={quote.reload} />
 
+      <ClausesCard quote={quote.data} onSaved={quote.reload} />
+
       <ActionsBar quote={quote.data} onSent={quote.reload} onAccepted={setAcceptedShipment} onRejected={quote.reload} />
 
       {quote.data.status === "accepted" && <InvoiceSection quote={quote.data} onCreated={quote.reload} />}
@@ -309,6 +311,72 @@ function SummaryCard({ quote, onSaved }: { quote: Quote; onSaved: () => void }) 
               </Button>
             )}
           </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ClausesCard({ quote, onSaved }: { quote: Quote; onSaved: () => void }) {
+  const editable = quote.shipment_stage !== "invoice_to_customer" && quote.is_current
+  const [editing, setEditing] = useState(false)
+  const [clauses, setClauses] = useState(quote.clauses ?? "")
+  const [saving, setSaving] = useState(false)
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      await quotesApi.setClauses(quote.id, clauses.trim() || null)
+      toast.success("Terms & conditions updated")
+      setEditing(false)
+      onSaved()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not save terms & conditions.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!editable && !quote.clauses) return null
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="text-base">Terms &amp; Conditions</CardTitle>
+        {editable && !editing && (
+          <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+            {quote.clauses ? "Edit" : "Add"}
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent>
+        {editing ? (
+          <div className="space-y-2">
+            <Textarea
+              rows={4}
+              value={clauses}
+              onChange={(e) => setClauses(e.target.value)}
+              placeholder="Trading terms/clauses to print on this quote and any invoice generated from it, e.g. BIFA standard trading conditions."
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={saving}
+                onClick={() => {
+                  setClauses(quote.clauses ?? "")
+                  setEditing(false)
+                }}
+              >
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleSave} disabled={saving}>
+                {saving ? "Saving…" : "Save"}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <p className="whitespace-pre-wrap text-sm text-foreground">{quote.clauses}</p>
         )}
       </CardContent>
     </Card>

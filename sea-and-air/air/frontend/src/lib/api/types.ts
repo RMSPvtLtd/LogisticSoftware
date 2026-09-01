@@ -153,6 +153,7 @@ export interface Quote {
   discount_amount: string
   total: string
   valid_until: string
+  clauses: string | null
   revision_number: number
   root_quote_id: number | null
   is_current: boolean
@@ -395,6 +396,7 @@ export interface Invoice {
   voyage_flight_number_snapshot: string | null
   job_number_snapshot: string | null
   remarks: string | null
+  clauses_snapshot: string | null
   created_at: string
   line_items: InvoiceLineItem[]
 }
