@@ -4,6 +4,8 @@
 // repeated at every call site.
 
 import type {
+  AirlineSchedule,
+  AirlineScheduleInput,
   Area,
   ChangePasswordRequest,
   Company,
@@ -227,6 +229,18 @@ export const rateCardsApi = {
   update: (id: number, payload: RateCardInput) =>
     opsRequest<RateCard>(`/rate-cards/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
   remove: (id: number) => opsRequest<void>(`/rate-cards/${id}`, { method: "DELETE" }),
+}
+
+// --- airline schedules ---
+
+export const airlineSchedulesApi = {
+  list: () => opsRequest<AirlineSchedule[]>("/airline-schedules"),
+  get: (id: number) => opsRequest<AirlineSchedule>(`/airline-schedules/${id}`),
+  create: (payload: AirlineScheduleInput) =>
+    opsRequest<AirlineSchedule>("/airline-schedules", { method: "POST", body: JSON.stringify(payload) }),
+  update: (id: number, payload: AirlineScheduleInput) =>
+    opsRequest<AirlineSchedule>(`/airline-schedules/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  remove: (id: number) => opsRequest<void>(`/airline-schedules/${id}`, { method: "DELETE" }),
 }
 
 // --- invoices ---

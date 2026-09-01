@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { NavLink, Outlet } from "react-router-dom"
-import { Key, MagnifyingGlass, Package, Plus, Receipt, Scales, SignOut, Truck, UserCircle, Users } from "@phosphor-icons/react"
+import { CalendarBlank, Key, MagnifyingGlass, Package, Plus, Receipt, Scales, SignOut, Truck, UserCircle, Users } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 import { ThemeToggle } from "@/components/shared/ThemeToggle"
 import { ChangePasswordDialog } from "@/components/shared/ChangePasswordDialog"
@@ -22,6 +22,7 @@ const NAV_LINKS = [
   { to: "/workers", label: "Workers", icon: Users },
   { to: "/customers", label: "Customers", icon: UserCircle },
   { to: "/rate-cards", label: "Rate Cards", icon: Scales },
+  { to: "/airline-schedules", label: "Flight Schedule", icon: CalendarBlank },
 ]
 
 export function OpsShell() {

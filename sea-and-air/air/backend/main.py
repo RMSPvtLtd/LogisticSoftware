@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 from api import (
+    airline_schedules,
     auth,
     companies,
     customer_portal,
@@ -152,6 +153,7 @@ def create_app() -> FastAPI:
     app.include_router(inquiries.router)
     app.include_router(quotes.router)
     app.include_router(rate_cards.router)
+    app.include_router(airline_schedules.router)
     app.include_router(shipments.router)
     app.include_router(documents.router)
     app.include_router(documents.doc_router)

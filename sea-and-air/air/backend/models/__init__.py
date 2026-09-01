@@ -11,6 +11,7 @@ from models.enums import (
     TransportMode,
     UnitOfMeasure,
 )
+from models.airline_schedule import AirlineSchedule
 from models.company import Company
 from models.customer import Customer
 from models.document import ShipmentDocument
@@ -34,6 +35,7 @@ __all__ = [
     "ShipmentStage",
     "TransportMode",
     "UnitOfMeasure",
+    "AirlineSchedule",
     "Company",
     "Customer",
     "Inquiry",

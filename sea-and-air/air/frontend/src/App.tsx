@@ -23,6 +23,7 @@ import { WorkerQueuePage } from "@/pages/WorkerQueuePage"
 import { WorkersAdminPage } from "@/pages/WorkersAdminPage"
 import { CustomersAdminPage } from "@/pages/CustomersAdminPage"
 import { RateCardsAdminPage } from "@/pages/RateCardsAdminPage"
+import { AirlineSchedulesAdminPage } from "@/pages/AirlineSchedulesAdminPage"
 import { CustomerLoginPage } from "@/pages/CustomerLoginPage"
 import { CustomerShipmentsPage } from "@/pages/CustomerShipmentsPage"
 import { CustomerShipmentDetailPage } from "@/pages/CustomerShipmentDetailPage"
@@ -68,6 +69,7 @@ function App() {
             <Route path="/workers" element={<WorkersAdminPage />} />
             <Route path="/customers" element={<CustomersAdminPage />} />
             <Route path="/rate-cards" element={<RateCardsAdminPage />} />
+            <Route path="/airline-schedules" element={<AirlineSchedulesAdminPage />} />
           </Route>
         </Route>
 

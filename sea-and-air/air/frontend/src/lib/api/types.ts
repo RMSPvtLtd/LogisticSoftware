@@ -585,3 +585,26 @@ export interface RateCardInput {
   breaks: RateCardBreakInput[]
   charges: RateCardChargeInput[]
 }
+
+export type DayOfWeek = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun"
+
+export interface AirlineSchedule {
+  id: number
+  airline_name: string
+  origin: string
+  destination: string
+  mode: TransportMode
+  days_of_week: DayOfWeek[]
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AirlineScheduleInput {
+  airline_name: string
+  origin: string
+  destination: string
+  mode: TransportMode
+  days_of_week: DayOfWeek[]
+  notes: string | null
+}
