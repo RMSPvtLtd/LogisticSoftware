@@ -56,6 +56,7 @@ export function QuoteBreakdown({ quoteId }: { quoteId: number }) {
     [quote.data?.inquiry_id],
   )
   const [acceptedShipment, setAcceptedShipment] = useState<Shipment | null>(null)
+  const [emailing, setEmailing] = useState(false)
 
   if (quote.loading) return <LoadingState rows={5} />
   if (quote.error || !quote.data) return <ErrorState message={quote.error ?? "Quote not found."} onRetry={quote.reload} />
@@ -65,6 +66,18 @@ export function QuoteBreakdown({ quoteId }: { quoteId: number }) {
   }
 
   const q = quote.data
+
+  async function handleEmail() {
+    setEmailing(true)
+    try {
+      await quotesApi.email(q.id)
+      toast.success("Quote emailed to customer")
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not send email.")
+    } finally {
+      setEmailing(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -83,14 +96,25 @@ export function QuoteBreakdown({ quoteId }: { quoteId: number }) {
             </p>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => openAuthedFile(quotesApi.pdfUrl(q.id)).catch(() => toast.error("Could not open PDF."))}
-          className="flex shrink-0 items-center gap-1.5 text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <FileText size={16} />
-          Preview PDF
-        </button>
+        <div className="flex shrink-0 items-center gap-3">
+          <button
+            type="button"
+            onClick={() => openAuthedFile(quotesApi.pdfUrl(q.id)).catch(() => toast.error("Could not open PDF."))}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <FileText size={16} />
+            Preview PDF
+          </button>
+          <button
+            type="button"
+            onClick={handleEmail}
+            disabled={emailing}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+          >
+            <PaperPlaneTilt size={16} />
+            {emailing ? "Sending…" : "Email to Customer"}
+          </button>
+        </div>
       </div>
 
       <RevisionHistory rootQuoteId={q.root_quote_id ?? q.id} currentId={q.id} />

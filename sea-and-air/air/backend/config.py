@@ -88,6 +88,14 @@ class Settings(BaseSettings):
     ops_admin_username: str = "admin"
     ops_admin_password: str = DEV_OPS_PASSWORD
 
+    # Emails a rendered quote/invoice PDF to the customer on file
+    # (services.email). Optional and feature-gated, deliberately NOT checked
+    # by assert_production_ready below -- a deployment with no key configured
+    # still boots and serves every other route fine; only the "Send by
+    # email" action itself fails with a clear EmailNotConfigured error.
+    resend_api_key: str | None = None
+    resend_from_email: str = "Raaziq International <onboarding@resend.dev>"
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

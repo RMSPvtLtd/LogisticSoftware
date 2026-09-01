@@ -26,10 +26,13 @@ from sqlalchemy.orm import Session
 
 from config import get_settings
 from utils.errors import InvalidCancellation, InvalidQuoteState, NotFound
+from models.customer import Customer
 from models.enums import EventSource, InvoiceStatus, QuoteStatus
 from models.invoice import Invoice, InvoiceLineItem, InvoiceNumberCounter
 from models.quote import Quote
 from services.companies import get_company
+from services.email import send_pdf_email
+from services.pdf_documents import render_invoice_pdf
 from services.pricing import compute_chargeable_weight
 from services.transitions import record_note
 
@@ -193,6 +196,28 @@ def cancel_invoice(session: Session, invoice_id: int, *, reason: str, actor: str
         )
     session.flush()
     return invoice
+
+
+def email_invoice(session: Session, invoice_id: int) -> None:
+    """Emails the invoice's PDF to the customer's current address on file
+    (not a snapshot -- if the customer's email changed since the invoice
+    was issued, the correspondence should still reach them)."""
+    invoice = get_invoice(session, invoice_id)
+    customer = session.get(Customer, invoice.customer_id)
+    if customer is None:
+        raise NotFound(f"Customer {invoice.customer_id} not found")
+
+    pdf_bytes = render_invoice_pdf(invoice)
+    send_pdf_email(
+        to_email=customer.email,
+        subject=f"Invoice {invoice.invoice_number} - Raaziq International",
+        body_text=(
+            f"Dear {customer.name},\n\nPlease find attached invoice {invoice.invoice_number} "
+            f"for {invoice.origin_snapshot} to {invoice.destination_snapshot}.\n\nRegards,\nRaaziq International"
+        ),
+        pdf_bytes=pdf_bytes,
+        pdf_filename=f"{invoice.invoice_number}.pdf",
+    )
 
 
 def get_invoice(session: Session, invoice_id: int) -> Invoice:

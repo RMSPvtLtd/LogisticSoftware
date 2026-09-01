@@ -207,6 +207,7 @@ export const quotesApi = {
     }),
   setClauses: (id: number, clauses: string | null) =>
     opsRequest<Quote>(`/quotes/${id}/clauses`, { method: "PATCH", body: JSON.stringify({ clauses }) }),
+  email: (id: number) => opsRequest<{ sent: boolean }>(`/quotes/${id}/email`, { method: "POST" }),
   send: (id: number) => opsRequest<Quote>(`/quotes/${id}/send`, { method: "POST" }),
   accept: (id: number) => opsRequest<Shipment>(`/quotes/${id}/accept`, { method: "POST" }),
   reject: (id: number, reason: string) =>
@@ -261,6 +262,7 @@ export const invoicesApi = {
     }),
   cancel: (id: number, reason: string) =>
     opsRequest<Invoice>(`/invoices/${id}/cancel`, { method: "POST", body: JSON.stringify({ reason }) }),
+  email: (id: number) => opsRequest<{ sent: boolean }>(`/invoices/${id}/email`, { method: "POST" }),
   pdfUrl: (id: number) => `${BASE_URL}/invoices/${id}/pdf`,
 }
 

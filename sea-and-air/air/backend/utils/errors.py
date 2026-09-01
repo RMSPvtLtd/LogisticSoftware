@@ -138,3 +138,17 @@ class InvalidMoneyAmount(DomainError):
     the request body is what's unprocessable, not the entity's state."""
 
     http_status = 422
+
+
+class EmailNotConfigured(DomainError):
+    """No RESEND_API_KEY is configured for this deployment -- emailing a
+    quote/invoice is unavailable. Deliberately not a boot-time failure (see
+    config.Settings.resend_api_key); every other route still works fine."""
+
+    http_status = 422
+
+
+class EmailSendFailed(DomainError):
+    """The configured email provider rejected the send or was unreachable."""
+
+    http_status = 502

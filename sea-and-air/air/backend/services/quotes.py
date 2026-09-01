@@ -44,6 +44,8 @@ from models.inquiry import Inquiry
 from models.quote import Quote, QuoteLineItem
 from models.shipment import Shipment, ShipmentReference
 from schemas.money import MAX_MONEY
+from services.email import send_pdf_email
+from services.pdf_documents import render_quote_pdf
 from services.pricing import price_inquiry
 from services.shipments import allocate_job_number
 from services.transitions import advance_stage, record_note
@@ -295,6 +297,24 @@ def set_quote_clauses(session: Session, quote_id: int, *, clauses: str | None, t
     quote.clauses = clauses
     session.flush()
     return quote
+
+
+def email_quote(session: Session, quote_id: int) -> None:
+    """Emails the quote's PDF to the inquiry's customer."""
+    quote = _get_quote(session, quote_id)
+    customer = quote.inquiry.customer
+
+    pdf_bytes = render_quote_pdf(session, quote)
+    send_pdf_email(
+        to_email=customer.email,
+        subject=f"Quotation {_quote_ref(quote)} - Raaziq International",
+        body_text=(
+            f"Dear {customer.name},\n\nPlease find attached our quotation {_quote_ref(quote)} "
+            f"for {quote.inquiry.origin} to {quote.inquiry.destination}.\n\nRegards,\nRaaziq International"
+        ),
+        pdf_bytes=pdf_bytes,
+        pdf_filename=f"quote-{quote.id}.pdf",
+    )
 
 
 def send_quote(session: Session, quote_id: int, *, today: date | None = None) -> Quote:

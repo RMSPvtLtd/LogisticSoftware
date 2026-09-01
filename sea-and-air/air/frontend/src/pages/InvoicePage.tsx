@@ -1,7 +1,7 @@
 import { Fragment, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
-import { ArrowLeft, DownloadSimple, Prohibit } from "@phosphor-icons/react"
+import { ArrowLeft, DownloadSimple, PaperPlaneTilt, Prohibit } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { LoadingState, ErrorState } from "@/components/shared/States"
 import { Button } from "@/components/ui/button"
@@ -56,6 +56,7 @@ export function InvoicePage() {
   const { id } = useParams<{ id: string }>()
   const invoiceId = Number(id)
   const navigate = useNavigate()
+  const [emailing, setEmailing] = useState(false)
 
   const invoice = useAsync(() => invoicesApi.get(invoiceId), [invoiceId])
   const companies = useAsync(() => companiesApi.list(), [])
@@ -76,6 +77,18 @@ export function InvoicePage() {
     ? allInvoices.data?.find((i) => i.id === inv.replaces_invoice_id)
     : undefined
   const replacedBy = allInvoices.data?.find((i) => i.replaces_invoice_id === inv.id)
+
+  async function handleEmail() {
+    setEmailing(true)
+    try {
+      await invoicesApi.email(inv.id)
+      toast.success(`Invoice emailed to ${inv.customer_name_snapshot}`)
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not send email.")
+    } finally {
+      setEmailing(false)
+    }
+  }
 
   return (
     <div>
@@ -105,6 +118,10 @@ export function InvoicePage() {
             >
               <DownloadSimple size={16} />
               Download PDF
+            </Button>
+            <Button variant="outline" className="gap-1.5" onClick={handleEmail} disabled={emailing}>
+              <PaperPlaneTilt size={16} />
+              {emailing ? "Sending…" : "Email to Customer"}
             </Button>
             {inv.status === "issued" && <CancelInvoiceDialog invoiceId={inv.id} onCancelled={invoice.reload} />}
           </div>

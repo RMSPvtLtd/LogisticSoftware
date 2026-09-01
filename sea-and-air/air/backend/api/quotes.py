@@ -20,6 +20,7 @@ from services.pdf_documents import render_quote_pdf
 from services.quotes import (
     LineItemOverride,
     accept_quote,
+    email_quote,
     generate_quote,
     list_revisions,
     override_line_items,
@@ -83,6 +84,12 @@ def download_pdf(quote_id: int, db: Session = Depends(get_db)) -> Response:
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="quote-{quote.id}.pdf"'},
     )
+
+
+@router.post("/{quote_id}/email", status_code=200)
+def email(quote_id: int, db: Session = Depends(get_db)) -> dict:
+    email_quote(db, quote_id)
+    return {"sent": True}
 
 
 @router.post("/{quote_id}/send", response_model=QuoteRead)

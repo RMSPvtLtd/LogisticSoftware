@@ -6,7 +6,7 @@ from models.invoice import Invoice
 from models.ops_user import OpsUser
 from schemas.invoices import InvoiceCancelRequest, InvoiceCreateRequest, InvoiceRead
 from utils.security import get_current_ops_user
-from services.invoices import cancel_invoice, create_invoice_from_quote, get_invoice, list_invoices
+from services.invoices import cancel_invoice, create_invoice_from_quote, email_invoice, get_invoice, list_invoices
 from services.pdf_documents import render_invoice_pdf
 
 router = APIRouter(prefix="/invoices", tags=["invoices"], dependencies=[Depends(get_current_ops_user)])
@@ -47,6 +47,12 @@ def download_pdf(invoice_id: int, db: Session = Depends(get_db)) -> Response:
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{invoice.invoice_number}.pdf"'},
     )
+
+
+@router.post("/{invoice_id}/email", status_code=200)
+def email(invoice_id: int, db: Session = Depends(get_db)) -> dict:
+    email_invoice(db, invoice_id)
+    return {"sent": True}
 
 
 @router.post("/{invoice_id}/cancel", response_model=InvoiceRead)
