@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 import { ArrowLeft, DownloadSimple, Prohibit } from "@phosphor-icons/react"
@@ -22,7 +22,7 @@ import {
 import { useAsync } from "@/hooks/useAsync"
 import { ApiError, companiesApi, downloadAuthedFile, invoicesApi } from "@/lib/api/client"
 import { formatDate, formatMoney } from "@/lib/format"
-import type { InvoiceStatus } from "@/lib/api/types"
+import type { ChargeKind, Invoice, InvoiceStatus } from "@/lib/api/types"
 
 const KIND_LABEL: Record<string, string> = {
   freight: "Freight",
@@ -31,6 +31,23 @@ const KIND_LABEL: Record<string, string> = {
   pickup: "Pickup",
   handling: "Handling",
   other: "Other",
+}
+
+// Fixed display order so the charges table always reads Freight ->
+// Documentation -> Customs -> Pickup -> Handling -> Other, regardless of
+// the order line items were actually created in.
+const KIND_ORDER: ChargeKind[] = ["freight", "documentation", "customs", "pickup", "handling", "other"]
+
+function groupLineItemsByKind(lineItems: Invoice["line_items"]) {
+  const present = KIND_ORDER.filter((k) => lineItems.some((li) => li.kind === k))
+  for (const li of lineItems) {
+    if (!present.includes(li.kind)) present.push(li.kind)
+  }
+  return present.map((kind) => {
+    const items = lineItems.filter((li) => li.kind === kind)
+    const subtotal = items.reduce((sum, li) => sum + Number(li.amount), 0)
+    return { kind, items, subtotal }
+  })
 }
 
 const STATUS_LABEL: Record<InvoiceStatus, string> = { draft: "Draft", issued: "Issued", paid: "Paid", cancelled: "Cancelled" }
@@ -120,14 +137,30 @@ export function InvoicePage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {inv.line_items.map((li) => (
-                      <TableRow key={li.id}>
-                        <TableCell>
-                          <span>{KIND_LABEL[li.kind] ?? li.kind}</span>
-                          <p className="text-xs text-muted-foreground">{li.description}</p>
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">{formatMoney(li.amount, inv.currency)}</TableCell>
-                      </TableRow>
+                    {groupLineItemsByKind(inv.line_items).map((group) => (
+                      <Fragment key={group.kind}>
+                        <TableRow className="bg-muted/50 hover:bg-muted/50">
+                          <TableCell colSpan={2} className="py-1.5 text-xs font-semibold uppercase text-muted-foreground">
+                            {KIND_LABEL[group.kind] ?? group.kind} Charges
+                          </TableCell>
+                        </TableRow>
+                        {group.items.map((li) => (
+                          <TableRow key={li.id}>
+                            <TableCell className="pl-6 text-sm">{li.description}</TableCell>
+                            <TableCell className="text-right tabular-nums">{formatMoney(li.amount, inv.currency)}</TableCell>
+                          </TableRow>
+                        ))}
+                        {group.items.length > 1 && (
+                          <TableRow className="border-none">
+                            <TableCell className="pl-6 text-xs italic text-muted-foreground">
+                              {KIND_LABEL[group.kind] ?? group.kind} Subtotal
+                            </TableCell>
+                            <TableCell className="text-right text-xs italic tabular-nums text-muted-foreground">
+                              {formatMoney(String(group.subtotal), inv.currency)}
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </Fragment>
                     ))}
                   </TableBody>
                 </Table>

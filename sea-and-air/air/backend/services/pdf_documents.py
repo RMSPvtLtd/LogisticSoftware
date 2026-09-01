@@ -53,6 +53,19 @@ from services.pricing import compute_chargeable_weight
 
 _STAGE_LABEL = {"air": "Air", "sea": "Sea", "road": "Road"}
 
+# Charges are grouped under one heading per ChargeKind, in this fixed order,
+# so the printed document always reads Freight -> Documentation -> Customs ->
+# Pickup -> Handling -> Other regardless of the order line items were added.
+_KIND_LABEL = {
+    "freight": "Freight Charges",
+    "documentation": "Documentation Charges",
+    "customs": "Customs Charges",
+    "pickup": "Pickup Charges",
+    "handling": "Handling Charges",
+    "other": "Other Charges",
+}
+_KIND_ORDER = ["freight", "documentation", "customs", "pickup", "handling", "other"]
+
 
 @dataclass
 class _DocumentData:
@@ -77,7 +90,7 @@ class _DocumentData:
     voyage_flight_number: str | None
     job_number: str | None
     references: list[tuple[str, str]]
-    line_items: list[tuple[str, Decimal]]
+    line_items: list[tuple[str, str, Decimal]]  # (kind, description, amount)
     subtotal: Decimal
     markup_amount: Decimal
     tax_amount: Decimal
@@ -142,7 +155,7 @@ def _quote_to_document_data(session: Session, quote: Quote) -> _DocumentData:
         voyage_flight_number=shipment.voyage_flight_number if shipment else None,
         job_number=shipment.job_number if shipment else None,
         references=references,
-        line_items=[(li.description, li.final_total) for li in quote.line_items],
+        line_items=[(li.kind.value, li.description, li.final_total) for li in quote.line_items],
         subtotal=quote.subtotal,
         markup_amount=quote.markup_amount,
         tax_amount=quote.tax_amount,
@@ -183,7 +196,7 @@ def _invoice_to_document_data(invoice: Invoice) -> _DocumentData:
         voyage_flight_number=invoice.voyage_flight_number_snapshot,
         job_number=invoice.job_number_snapshot,
         references=references,
-        line_items=[(li.description, li.amount) for li in invoice.line_items],
+        line_items=[(li.kind.value, li.description, li.amount) for li in invoice.line_items],
         subtotal=invoice.subtotal,
         markup_amount=invoice.markup_amount,
         tax_amount=invoice.tax_amount,
@@ -322,10 +335,27 @@ def _build_pdf(data: _DocumentData) -> bytes:
     story.append(particulars_table)
     story.append(Spacer(1, 12))
 
-    # --- charges ---
+    # --- charges, grouped under one heading per ChargeKind ---
     charge_rows = [["Description", "Amount"]]
-    for description, amount in data.line_items:
-        charge_rows.append([description, _money(amount, data.currency)])
+    heading_rows: list[int] = []
+    group_subtotal_rows: list[int] = []
+
+    present_kinds = [k for k in _KIND_ORDER if any(kind == k for kind, _, _ in data.line_items)]
+    # Defensive: a kind outside the known fixed order still prints, just last.
+    present_kinds += [
+        k for k in dict.fromkeys(kind for kind, _, _ in data.line_items) if k not in present_kinds
+    ]
+    for kind in present_kinds:
+        items = [(description, amount) for k, description, amount in data.line_items if k == kind]
+        heading_rows.append(len(charge_rows))
+        charge_rows.append([_KIND_LABEL.get(kind, kind.title()), ""])
+        for description, amount in items:
+            charge_rows.append([description, _money(amount, data.currency)])
+        if len(items) > 1:
+            group_subtotal_rows.append(len(charge_rows))
+            group_total = sum((amount for _, amount in items), Decimal("0"))
+            charge_rows.append([f"{_KIND_LABEL.get(kind, kind.title())} Subtotal", _money(group_total, data.currency)])
+
     charge_rows.append(["Subtotal", _money(data.subtotal, data.currency)])
     if data.markup_amount:
         charge_rows.append(["Service Charge", _money(data.markup_amount, data.currency)])
@@ -348,6 +378,14 @@ def _build_pdf(data: _DocumentData) -> bytes:
         ("TOPPADDING", (0, 0), (-1, -1), 4),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]
+    for idx in heading_rows:
+        style.append(("FONTNAME", (0, idx), (-1, idx), "Helvetica-Bold"))
+        style.append(("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#f7f7f7")))
+        style.append(("TOPPADDING", (0, idx), (-1, idx), 6))
+    for idx in group_subtotal_rows:
+        style.append(("FONTNAME", (0, idx), (-1, idx), "Helvetica-Oblique"))
+        style.append(("LINEABOVE", (0, idx), (-1, idx), 0.5, colors.HexColor("#cccccc")))
+        style.append(("BOTTOMPADDING", (0, idx), (-1, idx), 6))
     charges_table.setStyle(TableStyle(style))
     story.append(charges_table)
     story.append(Spacer(1, 8))

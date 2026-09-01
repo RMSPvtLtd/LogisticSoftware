@@ -1,14 +1,15 @@
 from datetime import date
+from decimal import Decimal
 
 import pytest
 
 from utils.errors import InvalidCancellation, InvalidQuoteState, NotFound
-from models.enums import InvoiceStatus, ShipmentStage
+from models.enums import ChargeKind, InvoiceStatus, ShipmentStage
 from services.pdf_documents import render_invoice_pdf
 from services.quotes import accept_quote, generate_quote
 from services.invoices import cancel_invoice, create_invoice_from_quote
 from services.transitions import advance_stage
-from factories import make_company, make_customer, make_inquiry, simple_rate_card
+from factories import add_charge, make_company, make_customer, make_inquiry, simple_rate_card
 
 TODAY = date(2026, 6, 1)
 
@@ -143,6 +144,30 @@ def test_render_invoice_pdf_returns_valid_pdf_bytes(db_session):
     company = make_company(db_session)
     quote = _accepted_quote(db_session)
     invoice = create_invoice_from_quote(db_session, quote.id, company_id=company.id, today=TODAY)
+
+    pdf_bytes = render_invoice_pdf(invoice)
+
+    assert pdf_bytes[:4] == b"%PDF"
+
+
+def test_render_invoice_pdf_with_multiple_charge_kinds_does_not_raise(db_session):
+    """The charges table groups line items by ChargeKind with a heading and
+    subtotal per group -- exercise a real multi-kind invoice (freight +
+    two accessory charges of different kinds) to catch a grouping bug that
+    a single-kind fixture (_accepted_quote's default) wouldn't."""
+    company = make_company(db_session)
+    customer = make_customer(db_session)
+    rate_card = simple_rate_card(db_session)
+    add_charge(db_session, rate_card, kind=ChargeKind.DOCUMENTATION, description="Docs fee", amount=Decimal("45"))
+    add_charge(db_session, rate_card, kind=ChargeKind.CUSTOMS, description="Customs clearance", amount=Decimal("30"))
+    inquiry = make_inquiry(db_session, customer)
+    quote = generate_quote(db_session, inquiry.id, today=TODAY)
+    db_session.flush()
+    accept_quote(db_session, quote.id, "ops", today=TODAY)
+    invoice = create_invoice_from_quote(db_session, quote.id, company_id=company.id, today=TODAY)
+
+    kinds_present = {li.kind for li in invoice.line_items}
+    assert len(kinds_present) >= 2
 
     pdf_bytes = render_invoice_pdf(invoice)
 
