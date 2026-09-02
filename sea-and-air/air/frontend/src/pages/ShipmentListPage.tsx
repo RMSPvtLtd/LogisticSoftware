@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
-import { MagnifyingGlass, Package, Trash, X } from "@phosphor-icons/react"
+import { CopySimple, DotsThreeVertical, MagnifyingGlass, Package, X } from "@phosphor-icons/react"
 import { toast } from "sonner"
 import { EmptyState, ErrorState, LoadingState } from "@/components/shared/States"
 import { PageHeader } from "@/components/shared/PageHeader"
@@ -10,13 +10,13 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useAsync } from "@/hooks/useAsync"
 import { useStages } from "@/hooks/useStages"
 import { ApiError, customersApi, inquiriesApi, shipmentsApi } from "@/lib/api/client"
-import { attentionText, formatWaitingAge, quickViewCounts, stageEnteredAt } from "@/lib/shipment-operations"
+import { attentionText, formatWaitingAge, quickViewCounts, stageEnteredAt, withShipmentSearch } from "@/lib/shipment-operations"
 import { filterShipments, parseShipmentQuery } from "@/lib/shipment-filters"
-import type { Priority } from "@/lib/api/types"
+import type { Priority, Shipment } from "@/lib/api/types"
 
 type QuickView = "all" | "attention" | "atRisk" | "onHold" | "highPriority" | "readyToInvoice" | "completed"
 
@@ -42,8 +42,11 @@ export function ShipmentListPage() {
   const { stages } = useStages()
   const queryString = searchParams.toString()
   const query = useMemo(() => parseShipmentQuery(new URLSearchParams(queryString)), [queryString])
+  const urlSearch = searchParams.get("search") ?? ""
+  const [searchDraft, setSearchDraft] = useState(urlSearch)
   const [quickView, setQuickView] = useState<QuickView>("all")
   const [priority, setPriority] = useState<Priority | "all">("all")
+  const [risk, setRisk] = useState<"all" | "true" | "false">("all")
   const [customerId, setCustomerId] = useState("all")
   const [route, setRoute] = useState("all")
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null)
@@ -58,19 +61,21 @@ export function ShipmentListPage() {
     [inquiries.data],
   )
   const counts = useMemo(() => quickViewCounts(shipments.data ?? []), [shipments.data])
+  useEffect(() => setSearchDraft(urlSearch), [urlSearch])
   const visibleShipments = useMemo(() => {
     const routeMatch = route === "all" ? null : route.split("\u0000")
     return filterShipments(shipments.data ?? [], customers.data ?? [], inquiries.data ?? [], query).filter((shipment) => {
       const inquiry = inquiryById.get(shipment.inquiry_id)
       return matchesQuickView(quickView, shipment)
         && (priority === "all" || shipment.priority === priority)
+        && (risk === "all" || shipment.is_at_risk === (risk === "true"))
         && (customerId === "all" || shipment.customer_id === Number(customerId))
         && (!routeMatch || (inquiry?.origin === routeMatch[0] && inquiry.destination === routeMatch[1]))
     })
-  }, [customerId, customers.data, inquiries.data, inquiryById, priority, query, quickView, route, shipments.data])
+  }, [customerId, customers.data, inquiries.data, inquiryById, priority, query, quickView, risk, route, shipments.data])
   const loading = shipments.loading || customers.loading || inquiries.loading
   const error = shipments.error ?? customers.error ?? inquiries.error
-  const hasFilters = quickView !== "all" || priority !== "all" || customerId !== "all" || route !== "all" || queryString !== ""
+  const hasFilters = quickView !== "all" || priority !== "all" || risk !== "all" || customerId !== "all" || route !== "all" || queryString !== ""
 
   function setQuery(name: string, value?: string) {
     const next = new URLSearchParams(queryString)
@@ -82,8 +87,10 @@ export function ShipmentListPage() {
   function clearFilters() {
     setQuickView("all")
     setPriority("all")
+    setRisk("all")
     setCustomerId("all")
     setRoute("all")
+    setSearchDraft("")
     setSearchParams({})
   }
 
@@ -110,8 +117,8 @@ export function ShipmentListPage() {
     <div className="mb-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
       <div className="relative">
         <MagnifyingGlass size={17} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-        <Input value={query.search} onChange={(event) => setQuery("search", event.target.value.trim() || undefined)} placeholder="Search job, customer, route, or reference…" aria-label="Search shipments" className="pl-9 pr-9" />
-        {query.search && <Button variant="ghost" size="icon-sm" className="absolute top-1/2 right-1 -translate-y-1/2" onClick={() => setQuery("search")} aria-label="Clear shipment search"><X size={15} /></Button>}
+        <Input value={searchDraft} onChange={(event) => { const value = event.target.value; setSearchDraft(value); setSearchParams(withShipmentSearch(searchParams, value)) }} placeholder="Search job, customer, route, or reference…" aria-label="Search shipments" className="pl-9 pr-9" />
+        {searchDraft && <Button variant="ghost" size="icon-sm" className="absolute top-1/2 right-1 -translate-y-1/2" onClick={() => { setSearchDraft(""); setSearchParams(withShipmentSearch(searchParams, "")) }} aria-label="Clear shipment search"><X size={15} /></Button>}
       </div>
       <p className="self-center text-sm text-muted-foreground"><span className="font-medium text-foreground tabular-nums">{visibleShipments.length}</span> result{visibleShipments.length === 1 ? "" : "s"}</p>
     </div>
@@ -121,6 +128,7 @@ export function ShipmentListPage() {
       <Select value={customerId} onValueChange={setCustomerId}><SelectTrigger className="w-44" aria-label="Filter by customer"><SelectValue placeholder="Customer" /></SelectTrigger><SelectContent><SelectItem value="all">All customers</SelectItem>{(customers.data ?? []).map((customer) => <SelectItem key={customer.id} value={String(customer.id)}>{customer.name}</SelectItem>)}</SelectContent></Select>
       <Select value={route} onValueChange={setRoute}><SelectTrigger className="w-44" aria-label="Filter by route"><SelectValue placeholder="Route" /></SelectTrigger><SelectContent><SelectItem value="all">All routes</SelectItem>{routeOptions.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
       <Select value={priority} onValueChange={(value) => setPriority(value as Priority | "all")}><SelectTrigger className="w-36" aria-label="Filter by priority"><SelectValue placeholder="Priority" /></SelectTrigger><SelectContent><SelectItem value="all">All priorities</SelectItem><SelectItem value="low">Low</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="high">High</SelectItem></SelectContent></Select>
+      <Select value={risk} onValueChange={(value) => setRisk(value as "all" | "true" | "false")}><SelectTrigger className="w-36" aria-label="Filter by risk"><SelectValue placeholder="Risk" /></SelectTrigger><SelectContent><SelectItem value="all">All risk states</SelectItem><SelectItem value="true">At risk</SelectItem><SelectItem value="false">Not at risk</SelectItem></SelectContent></Select>
       {hasFilters && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear filters</Button>}
     </div>
     {loading && <LoadingState rows={6} />}
@@ -131,10 +139,10 @@ export function ShipmentListPage() {
   </div>
 }
 
-type ShipmentRecordsProps = { shipments: Awaited<ReturnType<typeof shipmentsApi.list>>; customerById: Map<number, { name: string }>; inquiryById: Map<number, { origin: string; destination: string }>; onDelete: (target: { id: number; label: string }) => void }
+type ShipmentRecordsProps = { shipments: Shipment[]; customerById: Map<number, { name: string }>; inquiryById: Map<number, { origin: string; destination: string }>; onDelete: (target: { id: number; label: string }) => void }
 
 function ShipmentRecords({ shipments, customerById, inquiryById, onDelete }: ShipmentRecordsProps) {
-  const record = (shipment: ShipmentRecordsProps["shipments"][number]) => {
+  const record = (shipment: Shipment) => {
     const customer = customerById.get(shipment.customer_id)
     const inquiry = inquiryById.get(shipment.inquiry_id)
     const label = shipment.job_number ?? `Inquiry #${shipment.inquiry_id}`
@@ -142,7 +150,21 @@ function ShipmentRecords({ shipments, customerById, inquiryById, onDelete }: Shi
     return { customer, inquiry, label, waiting }
   }
   return <>
-    <div className="hidden overflow-x-auto rounded-xl border border-border md:block"><Table><TableHeader className="sticky top-0 z-10 bg-background shadow-[0_1px_0_hsl(var(--border))]"><TableRow><TableHead>Job</TableHead><TableHead>Customer</TableHead><TableHead>Route</TableHead><TableHead>Stage</TableHead><TableHead>Waiting</TableHead><TableHead>Attention</TableHead><TableHead className="w-10"><span className="sr-only">Actions</span></TableHead></TableRow></TableHeader><TableBody>{shipments.map((shipment) => { const { customer, inquiry, label, waiting } = record(shipment); return <TableRow key={shipment.id}><TableCell className="font-medium tabular-nums"><Link to={`/shipments/${shipment.id}`} className="rounded hover:underline focus-visible:ring-2 focus-visible:ring-ring">{label}</Link></TableCell><TableCell>{customer?.name ?? "—"}</TableCell><TableCell>{inquiry ? `${inquiry.origin} → ${inquiry.destination}` : "—"}</TableCell><TableCell><StageBadge stage={shipment.stage} /></TableCell><TableCell className="tabular-nums text-muted-foreground">{waiting}</TableCell><TableCell>{attentionText(shipment) ? <div className="flex flex-wrap gap-1">{shipment.is_on_hold && <span className="rounded bg-status-warning-bg px-1.5 py-0.5 text-xs font-medium text-status-warning">On hold</span>}{shipment.is_at_risk && <RiskBadge />}</div> : <span className="text-muted-foreground">—</span>}</TableCell><TableCell><Button variant="ghost" size="icon" aria-label={`Delete ${label}`} onClick={() => onDelete({ id: shipment.id, label })} className="text-destructive hover:text-destructive"><Trash size={16} /></Button></TableCell></TableRow>})}</TableBody></Table></div>
-    <ul className="space-y-2 md:hidden" aria-label="Shipment records">{shipments.map((shipment) => { const { customer, inquiry, label, waiting } = record(shipment); return <li key={shipment.id} className="rounded-xl border border-border p-3"><div className="flex items-start justify-between gap-3"><div><Link to={`/shipments/${shipment.id}`} className="font-medium tabular-nums hover:underline focus-visible:ring-2 focus-visible:ring-ring">{label}</Link><p className="mt-0.5 text-sm text-muted-foreground">{customer?.name ?? "—"}</p></div><StageBadge stage={shipment.stage} /></div><p className="mt-3 text-sm">{inquiry ? `${inquiry.origin} → ${inquiry.destination}` : "Route unavailable"}</p><div className="mt-3 flex items-center justify-between text-xs text-muted-foreground"><span>Waiting {waiting}</span><span>{attentionText(shipment) ?? "No attention flags"}</span></div></li>})}</ul>
+    <div className="hidden h-[min(60vh,42rem)] overflow-auto rounded-xl border border-border md:block"><table className="w-full caption-bottom text-sm"><thead className="sticky top-0 z-10 bg-background shadow-[0_1px_0_hsl(var(--border))]"><tr className="border-b"><th className="h-10 px-2 text-left font-medium">Job</th><th className="h-10 px-2 text-left font-medium">Customer</th><th className="h-10 px-2 text-left font-medium">Route</th><th className="h-10 px-2 text-left font-medium">Stage</th><th className="h-10 px-2 text-left font-medium">Waiting</th><th className="h-10 px-2 text-left font-medium">Attention</th><th className="h-10 w-10 px-2"><span className="sr-only">Actions</span></th></tr></thead><tbody>{shipments.map((shipment) => { const { customer, inquiry, label, waiting } = record(shipment); return <tr key={shipment.id} className="border-b transition-colors hover:bg-muted/50"><td className="p-2 font-medium tabular-nums"><Link to={`/shipments/${shipment.id}`} className="rounded hover:underline focus-visible:ring-2 focus-visible:ring-ring">{label}</Link></td><td className="p-2">{customer?.name ?? "—"}</td><td className="p-2 whitespace-nowrap">{inquiry ? `${inquiry.origin} → ${inquiry.destination}` : "—"}</td><td className="p-2"><StageBadge stage={shipment.stage} /></td><td className="p-2 tabular-nums text-muted-foreground">{waiting}</td><td className="p-2">{attentionText(shipment) ? <div className="flex flex-wrap gap-1">{shipment.is_on_hold && <span className="rounded bg-status-warning-bg px-1.5 py-0.5 text-xs font-medium text-status-warning">On hold</span>}{shipment.is_at_risk && <RiskBadge />}</div> : <span className="text-muted-foreground">—</span>}</td><td className="p-2"><ShipmentRowActions shipment={shipment} label={label} onDelete={onDelete} /></td></tr>})}</tbody></table></div>
+    <ul className="space-y-2 md:hidden" aria-label="Shipment records">{shipments.map((shipment) => { const { customer, inquiry, label, waiting } = record(shipment); return <li key={shipment.id} className="rounded-xl border border-border p-3"><div className="flex items-start justify-between gap-3"><div><Link to={`/shipments/${shipment.id}`} className="font-medium tabular-nums hover:underline focus-visible:ring-2 focus-visible:ring-ring">{label}</Link><p className="mt-0.5 text-sm text-muted-foreground">{customer?.name ?? "—"}</p></div><div className="flex items-center gap-1"><StageBadge stage={shipment.stage} /><ShipmentRowActions shipment={shipment} label={label} onDelete={onDelete} /></div></div><p className="mt-3 text-sm">{inquiry ? `${inquiry.origin} → ${inquiry.destination}` : "Route unavailable"}</p><div className="mt-3 flex items-center justify-between text-xs text-muted-foreground"><span>Waiting {waiting}</span><span>{attentionText(shipment) ?? "No attention flags"}</span></div></li>})}</ul>
   </>
+}
+
+function ShipmentRowActions({ shipment, label, onDelete }: { shipment: Shipment; label: string; onDelete: ShipmentRecordsProps["onDelete"] }) {
+  async function copyJobNumber() {
+    if (!shipment.job_number) return
+    try {
+      await navigator.clipboard.writeText(shipment.job_number)
+      toast.success("Job number copied")
+    } catch {
+      toast.error("Could not copy job number.")
+    }
+  }
+
+  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Actions for ${label}`}><DotsThreeVertical size={18} /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem asChild><Link to={`/shipments/${shipment.id}`}>Open</Link></DropdownMenuItem>{shipment.job_number && <DropdownMenuItem onSelect={copyJobNumber}><CopySimple size={16} />Copy job number</DropdownMenuItem>}<DropdownMenuSeparator /><DropdownMenuItem variant="destructive" onSelect={() => onDelete({ id: shipment.id, label })}>Delete shipment</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
 }

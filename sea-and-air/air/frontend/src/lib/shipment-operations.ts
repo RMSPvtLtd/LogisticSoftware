@@ -75,3 +75,10 @@ export function attentionText(shipment: Pick<ShipmentOperationState, "is_at_risk
   if (shipment.is_at_risk) return "At risk"
   return null
 }
+
+export function withShipmentSearch(params: URLSearchParams, search: string): URLSearchParams {
+  const next = new URLSearchParams(params)
+  if (search) next.set("search", search)
+  else next.delete("search")
+  return next
+}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { formatWaitingAge, journeyRail, quickViewCounts, stageEnteredAt } from "../src/lib/shipment-operations.ts"
+import { attentionText, formatWaitingAge, journeyRail, quickViewCounts, stageEnteredAt, withShipmentSearch } from "../src/lib/shipment-operations.ts"
 
 test("quick views count real shipment states", () => {
   const counts = quickViewCounts([
@@ -51,4 +51,17 @@ test("journey rail condenses consecutive stage groups while preserving the curre
     { label: "Customs", state: "current" },
     { label: "Transit", state: "upcoming" },
   ])
+})
+
+test("attention text names both real attention states", () => {
+  assert.equal(attentionText({ is_at_risk: true, is_on_hold: true }), "On hold · At risk")
+  assert.equal(attentionText({ is_at_risk: false, is_on_hold: false }), null)
+})
+
+test("shipment search updates preserve multiword drafts and existing URL filters", () => {
+  const params = withShipmentSearch(new URLSearchParams("at_risk=true&mode=air"), "Hamid Motors")
+
+  assert.equal(params.get("search"), "Hamid Motors")
+  assert.equal(params.get("at_risk"), "true")
+  assert.equal(params.get("mode"), "air")
 })
