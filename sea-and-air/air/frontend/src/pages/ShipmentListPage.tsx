@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 import { Package, Trash } from "@phosphor-icons/react"
@@ -29,6 +29,10 @@ export function ShipmentListPage() {
   const [tab, setTab] = useState<ListTab>(() =>
     query.stages.length === 1 && query.stages[0] === "invoice_to_customer" ? "completed" : "active",
   )
+  useEffect(() => {
+    if (!queryString) return
+    setTab(query.stages.length === 1 && query.stages[0] === "invoice_to_customer" ? "completed" : "active")
+  }, [query, queryString])
   const [filters, setFilters] = useState<ShipmentFilters>({})
   const [deletingId, setDeletingId] = useState<number | null>(null)
 
