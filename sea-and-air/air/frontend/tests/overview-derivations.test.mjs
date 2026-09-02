@@ -42,10 +42,17 @@ const shipment = (overrides = {}) => ({
 test("derives truthful metrics, deterministic attention order, and active lanes", () => {
   const result = deriveOverviewData(
     [
-      shipment({ id: 1, job_number: "RQ-1001", is_at_risk: true, priority: "medium" }),
+      shipment({
+        id: 1,
+        job_number: "RQ-1001",
+        is_at_risk: true,
+        priority: "medium",
+        status_events: [{ id: 100, stage: "arrival", timestamp: "2026-09-01T10:00:00Z", actor: "ops", note: null, source: "manual", is_stage_change: true, is_internal: false }],
+      }),
       shipment({ id: 2, job_number: "RQ-1002", is_on_hold: true, priority: "high", inquiry_id: 21 }),
       shipment({ id: 3, job_number: "RQ-1003", stage: "invoice_to_customer", inquiry_id: 21 }),
       shipment({ id: 4, job_number: "RQ-1004", is_cancelled: true }),
+      shipment({ id: 5, job_number: "RQ-1005", is_on_hold: true, inquiry_id: 22 }),
     ],
     [
       { id: 10, name: "Acme", company_name: null, email: "acme@example.com", phone: null, address: null, username: null, portal_active: true, created_at: "", updated_at: "" },
@@ -53,16 +60,18 @@ test("derives truthful metrics, deterministic attention order, and active lanes"
     [
       { id: 20, customer_id: 10, origin: "Lahore", destination: "Dubai", mode: "air", cargo_type: "General", weight_kg: "1", volume_cbm: "1", dimensions: null, ready_date: null, incoterm: "CIP", description: null, hs_code: null, pieces: 1, supplier_name: null, supplier_address: null, created_at: "", updated_at: "" },
       { id: 21, customer_id: 10, origin: "Lahore", destination: "Dubai", mode: "air", cargo_type: "General", weight_kg: "1", volume_cbm: "1", dimensions: null, ready_date: null, incoterm: "CIP", description: null, hs_code: null, pieces: 1, supplier_name: null, supplier_address: null, created_at: "", updated_at: "" },
+      { id: 22, customer_id: 10, origin: "Lahore", destination: "Dubai", mode: "sea", cargo_type: "General", weight_kg: "1", volume_cbm: "1", dimensions: null, ready_date: null, incoterm: "CIP", description: null, hs_code: null, pieces: 1, supplier_name: null, supplier_address: null, created_at: "", updated_at: "" },
     ],
     stages,
     new Date("2026-09-01T12:00:00Z"),
   )
 
-  assert.deepEqual(result.metrics, { active: 2, atRisk: 1, onHold: 1, readyToInvoice: 2 })
-  assert.deepEqual(result.attention.map((item) => item.shipment.job_number), ["RQ-1002", "RQ-1001"])
-  assert.equal(result.lanes.length, 1)
+  assert.deepEqual(result.metrics, { active: 3, atRisk: 1, onHold: 2, readyToInvoice: 1 })
+  assert.deepEqual(result.attention.map((item) => item.shipment.job_number), ["RQ-1002", "RQ-1005", "RQ-1001"])
+  assert.equal(result.attention.find((item) => item.shipment.id === 1)?.waitingMinutes, 120)
+  assert.equal(result.lanes.length, 2)
   assert.deepEqual(result.lanes[0], {
-    key: "Lahore→Dubai",
+    key: "Lahore→Dubai·air",
     origin: "Lahore",
     destination: "Dubai",
     mode: "air",
@@ -71,5 +80,15 @@ test("derives truthful metrics, deterministic attention order, and active lanes"
     onHold: 1,
     shipmentIds: [1, 2],
   })
-  assert.equal(result.pipeline.some((phase) => phase.count === 2), true)
+  assert.deepEqual(result.lanes[1], {
+    key: "Lahore→Dubai·sea",
+    origin: "Lahore",
+    destination: "Dubai",
+    mode: "sea",
+    active: 1,
+    atRisk: 0,
+    onHold: 1,
+    shipmentIds: [5],
+  })
+  assert.equal(result.pipeline.some((phase) => phase.count === 3), true)
 })

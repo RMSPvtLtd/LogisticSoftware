@@ -19,6 +19,17 @@ const metricCards = [
   { key: "readyToInvoice", label: "Ready to invoice", icon: ArrowUpRight, tone: "text-status-success" },
 ] as const
 
+const metricTargets = {
+  active: "/shipments",
+  atRisk: "/shipments?at_risk=true",
+  onHold: "/shipments?on_hold=true",
+  readyToInvoice: "/shipments?stage=arrival",
+} as const
+
+function shipmentHref(params: Record<string, string>) {
+  return `/shipments?${new URLSearchParams(params).toString()}`
+}
+
 function formatMode(mode: string) {
   return mode.charAt(0).toUpperCase() + mode.slice(1)
 }
@@ -59,7 +70,8 @@ function SchematicNetwork({ lanes }: { lanes: ReturnType<typeof deriveOverviewDa
       </div>
       <ul className="grid gap-2 sm:grid-cols-2" aria-label="Active lane details">
         {visibleLanes.map((lane) => (
-          <li key={lane.key} className="rounded-lg border border-border bg-background px-3 py-2.5">
+          <li key={lane.key}>
+            <Link to={shipmentHref({ origin: lane.origin, destination: lane.destination, mode: lane.mode })} className="block rounded-lg border border-border bg-background px-3 py-2.5 outline-none transition-colors hover:border-accent-foreground/50 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring">
             <div className="flex items-center justify-between gap-3">
               <span className="font-medium">{lane.origin} <span className="text-muted-foreground">→</span> {lane.destination}</span>
               <Badge variant="secondary">{formatMode(lane.mode)}</Badge>
@@ -67,6 +79,7 @@ function SchematicNetwork({ lanes }: { lanes: ReturnType<typeof deriveOverviewDa
             <p className="mt-1 text-xs text-muted-foreground">
               {lane.active} active{lane.atRisk ? ` · ${lane.atRisk} at risk` : ""}{lane.onHold ? ` · ${lane.onHold} on hold` : ""}
             </p>
+            </Link>
           </li>
         ))}
       </ul>
@@ -87,8 +100,14 @@ export function OverviewPage() {
   const loading = shipments.loading || customers.loading || inquiries.loading || stagesLoading
   const error = shipments.error ?? customers.error ?? inquiries.error
 
+  function reloadOverview() {
+    shipments.reload()
+    customers.reload()
+    inquiries.reload()
+  }
+
   if (loading) return <LoadingState rows={6} />
-  if (error) return <ErrorState message={error} onRetry={shipments.reload} />
+  if (error) return <ErrorState message={error} onRetry={reloadOverview} />
 
   return (
     <div className="space-y-6">
@@ -104,15 +123,17 @@ export function OverviewPage() {
 
       <section aria-label="Shipment metrics" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {metricCards.map(({ key, label, icon: Icon, tone }) => (
-          <Card key={key} size="sm">
-            <CardContent className="flex items-center justify-between gap-4 py-1">
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-                <p className="mt-1 font-heading text-2xl font-semibold tabular-nums">{data.metrics[key]}</p>
-              </div>
-              <Icon size={24} weight="duotone" className={tone} aria-hidden="true" />
-            </CardContent>
-          </Card>
+          <Link key={key} to={metricTargets[key]} className="block rounded-xl outline-none transition-transform duration-150 hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-ring">
+            <Card size="sm" className="h-full transition-colors duration-150 hover:border-accent-foreground/40">
+              <CardContent className="flex items-center justify-between gap-4 py-1">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+                  <p className="mt-1 font-heading text-2xl font-semibold tabular-nums">{data.metrics[key]}</p>
+                </div>
+                <Icon size={24} weight="duotone" className={tone} aria-hidden="true" />
+              </CardContent>
+            </Card>
+          </Link>
         ))}
       </section>
 
@@ -176,7 +197,8 @@ export function OverviewPage() {
         </CardHeader>
         <CardContent className="grid gap-4 pt-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           {data.pipeline.map((phase) => (
-            <div key={phase.key} className="space-y-2">
+            <Link key={phase.key} to={shipmentHref({ phase: phase.key, stage: phase.stages.join(",") })} className="block rounded-lg p-2 -m-2 outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring">
+            <div className="space-y-2">
               <div className="flex items-baseline justify-between gap-2">
                 <span className="text-sm font-medium">{phase.label}</span>
                 <span className="font-heading text-lg font-semibold tabular-nums">{phase.count}</span>
@@ -186,6 +208,7 @@ export function OverviewPage() {
               </div>
               <p className="text-xs text-muted-foreground">{phase.stages.map((stage) => labelFor(stage)).join(" · ")}</p>
             </div>
+            </Link>
           ))}
           {data.pipeline.length === 0 && <p className="text-sm text-muted-foreground">Stage metadata is unavailable.</p>}
         </CardContent>

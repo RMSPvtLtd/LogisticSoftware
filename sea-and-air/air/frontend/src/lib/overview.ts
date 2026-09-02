@@ -40,9 +40,13 @@ export interface OverviewData {
 }
 
 function minutesWaiting(shipment: Shipment, now: Date): number {
-  const updated = new Date(shipment.updated_at).getTime()
-  if (!Number.isFinite(updated)) return 0
-  return Math.max(0, Math.floor((now.getTime() - updated) / 60000))
+  const stageChanges = shipment.status_events
+    .filter((event) => event.is_stage_change && event.stage === shipment.stage)
+    .map((event) => new Date(event.timestamp).getTime())
+    .filter((timestamp) => Number.isFinite(timestamp))
+  const latestStageChange = stageChanges.length ? Math.max(...stageChanges) : new Date(shipment.updated_at).getTime()
+  if (!Number.isFinite(latestStageChange)) return 0
+  return Math.max(0, Math.floor((now.getTime() - latestStageChange) / 60000))
 }
 
 function attentionScore(item: Shipment): number {
@@ -80,7 +84,7 @@ export function deriveOverviewData(
     active: activeShipments.length,
     atRisk: activeShipments.filter((shipment) => shipment.is_at_risk).length,
     onHold: activeShipments.filter((shipment) => shipment.is_on_hold).length,
-    readyToInvoice: activeShipments.filter((shipment) => shipment.stage === "arrival").length,
+    readyToInvoice: activeShipments.filter((shipment) => shipment.stage === "arrival" && !shipment.is_on_hold).length,
   }
 
   const attention = activeShipments
@@ -103,7 +107,7 @@ export function deriveOverviewData(
   for (const shipment of activeShipments) {
     const inquiry = inquiryById.get(shipment.inquiry_id)
     if (!inquiry) continue
-    const key = `${inquiry.origin}→${inquiry.destination}`
+    const key = `${inquiry.origin}→${inquiry.destination}·${inquiry.mode}`
     const lane = laneMap.get(key) ?? {
       key,
       origin: inquiry.origin,
@@ -122,7 +126,7 @@ export function deriveOverviewData(
   }
   const lanes = [...laneMap.values()]
     .map((lane) => ({ ...lane, shipmentIds: [...lane.shipmentIds].sort((a, b) => a - b) }))
-    .sort((a, b) => a.key.localeCompare(b.key))
+    .sort((a, b) => b.active - a.active || b.atRisk - a.atRisk || a.key.localeCompare(b.key))
 
   const phaseMap = new Map<string, OverviewPipelinePhase>()
   const lastStageIndex = stages.length - 1

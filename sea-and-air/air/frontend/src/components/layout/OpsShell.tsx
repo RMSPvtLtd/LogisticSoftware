@@ -1,10 +1,11 @@
-import { useState, type ComponentType } from "react"
-import { NavLink, Outlet } from "react-router-dom"
+import { useEffect, useRef, useState, type ComponentType, type FormEvent } from "react"
+import { NavLink, Outlet, useNavigate } from "react-router-dom"
 import { CalendarBlank, Key, List, MagnifyingGlass, Package, Plus, Receipt, Scales, SignOut, Truck, UserCircle, Users } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 import { ThemeToggle } from "@/components/shared/ThemeToggle"
 import { ChangePasswordDialog } from "@/components/shared/ChangePasswordDialog"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { useOpsAuth } from "@/hooks/useOpsAuth"
@@ -25,7 +26,7 @@ function SidebarNav({ closeOnNavigate = false }: { closeOnNavigate?: boolean }) 
           <p className="mb-1.5 px-3 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{group.label}</p>
           <div className="space-y-0.5">
             {group.links.map(({ to, label, icon: Icon }) => {
-              const link = <NavLink to={to} end={to === "/overview" || to === "/shipments" || to === "/quotes/new"} className={({ isActive }) => cn("flex min-h-9 items-center gap-2.5 rounded-lg px-3 text-sm font-medium transition-colors duration-150", isActive ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}><Icon size={17} aria-hidden="true" />{label}</NavLink>
+              const link = <NavLink to={to} end={to === "/overview" || to === "/quotes/new"} className={({ isActive }) => cn("flex min-h-9 items-center gap-2.5 rounded-lg px-3 text-sm font-medium transition-colors duration-150", isActive ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}><Icon size={17} aria-hidden="true" />{label}</NavLink>
               return closeOnNavigate ? <SheetClose asChild key={to}>{link}</SheetClose> : <div key={to}>{link}</div>
             })}
           </div>
@@ -50,12 +51,33 @@ function AccountMenu({ name, username, logout, onChangePassword }: { name?: stri
 }
 
 export function OpsShell() {
+  const navigate = useNavigate()
   const { opsUser, logout } = useOpsAuth()
   const [changePasswordOpen, setChangePasswordOpen] = useState(false)
+  const [search, setSearch] = useState("")
+  const searchRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    function focusSearch(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault()
+        searchRef.current?.focus()
+        searchRef.current?.select()
+      }
+    }
+    window.addEventListener("keydown", focusSearch)
+    return () => window.removeEventListener("keydown", focusSearch)
+  }, [])
+
+  function submitSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const term = search.trim()
+    navigate(term ? `/shipments?search=${encodeURIComponent(term)}` : "/shipments")
+  }
 
   return (
     <div className="min-h-dvh bg-background lg:flex">
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-card px-3 py-5 lg:flex" aria-label="Operations sidebar">
+      <aside className="hidden w-[var(--sidebar-width)] shrink-0 flex-col border-r border-border bg-card px-3 py-5 lg:flex" aria-label="Operations sidebar">
         <NavLink to="/overview" className="mb-6 flex items-center gap-2 px-3 font-heading text-base font-semibold text-foreground"><Truck size={22} weight="fill" className="text-accent-foreground" aria-hidden="true" />Raaziq</NavLink>
         <Button asChild className="mb-7 w-full justify-start gap-2 px-3"><NavLink to="/quotes/new"><Plus size={17} /> New Quote</NavLink></Button>
         <SidebarNav />
@@ -67,7 +89,7 @@ export function OpsShell() {
       </aside>
 
       <div className="min-w-0 flex-1">
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border bg-background/95 px-4 backdrop-blur-sm lg:px-7">
+        <header className="sticky top-0 z-30 flex h-[var(--topbar-height)] items-center gap-2 border-b border-border bg-background/95 px-4 backdrop-blur-sm lg:px-7">
           <Sheet>
             <SheetTrigger asChild><Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open operations navigation"><List size={21} /></Button></SheetTrigger>
             <SheetContent side="left" className="w-[min(86vw,20rem)] p-0" aria-describedby="mobile-nav-description">
@@ -80,7 +102,10 @@ export function OpsShell() {
             </SheetContent>
           </Sheet>
           <NavLink to="/overview" className="flex items-center gap-2 font-heading font-semibold lg:hidden"><Truck size={19} weight="fill" className="text-accent-foreground" /> Raaziq</NavLink>
-          <div className="hidden items-center gap-2 text-sm text-muted-foreground lg:flex"><MagnifyingGlass size={16} /><span>Operations workspace</span></div>
+          <form onSubmit={submitSearch} className="min-w-0 max-w-md flex-1" role="search">
+            <label htmlFor="ops-search" className="sr-only">Search shipments</label>
+            <div className="relative"><MagnifyingGlass size={16} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" /><Input ref={searchRef} id="ops-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search shipments…" className="pl-8 pr-12" /><kbd className="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground sm:block">⌘K</kbd></div>
+          </form>
           <div className="ml-auto flex items-center gap-1"><a href="/track" target="_blank" rel="noreferrer" aria-label="Customer tracking" className="hidden rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground sm:flex sm:items-center sm:gap-1.5"><MagnifyingGlass size={16} /> Tracking ↗</a><ThemeToggle /><div className="lg:hidden"><AccountMenu name={opsUser?.name} username={opsUser?.username} logout={logout} onChangePassword={() => setChangePasswordOpen(true)} /></div></div>
         </header>
         <main className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8 lg:px-7"><Outlet /></main>
