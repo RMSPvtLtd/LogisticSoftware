@@ -14,7 +14,7 @@ type Icon = ComponentType<{ size?: number; weight?: "regular" | "fill" | "duoton
 
 const NAV_GROUPS: { label: string; links: { to: string; label: string; icon: Icon }[] }[] = [
   { label: "Control Tower", links: [{ to: "/overview", label: "Overview", icon: List }, { to: "/shipments", label: "Shipments", icon: Package }] },
-  { label: "Commercial", links: [{ to: "/quotes/new", label: "Quotes", icon: Receipt }, { to: "/rate-cards", label: "Rate Cards", icon: Scales }, { to: "/airline-schedules", label: "Airline Schedules", icon: CalendarBlank }, { to: "/invoices", label: "Invoices", icon: Receipt }] },
+  { label: "Commercial", links: [{ to: "/quotes", label: "Quotes", icon: Receipt }, { to: "/rate-cards", label: "Rate Cards", icon: Scales }, { to: "/airline-schedules", label: "Airline Schedules", icon: CalendarBlank }, { to: "/invoices", label: "Invoices", icon: Receipt }] },
   { label: "Network", links: [{ to: "/customers", label: "Customers", icon: UserCircle }, { to: "/workers", label: "Workers", icon: Users }] },
 ]
 
@@ -26,7 +26,7 @@ function SidebarNav({ closeOnNavigate = false }: { closeOnNavigate?: boolean }) 
           <p className="mb-1.5 px-3 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{group.label}</p>
           <div className="space-y-0.5">
             {group.links.map(({ to, label, icon: Icon }) => {
-              const link = <NavLink to={to} end={to === "/overview" || to === "/quotes/new"} className={({ isActive }) => cn("flex min-h-9 items-center gap-2.5 rounded-lg px-3 text-sm font-medium transition-colors duration-150", isActive ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}><Icon size={17} aria-hidden="true" />{label}</NavLink>
+              const link = <NavLink to={to} end={to === "/overview" || to === "/quotes"} className={({ isActive }) => cn("flex min-h-9 items-center gap-2.5 rounded-lg px-3 text-sm font-medium transition-colors duration-150", isActive ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}><Icon size={17} aria-hidden="true" />{label}</NavLink>
               return closeOnNavigate ? <SheetClose asChild key={to}>{link}</SheetClose> : <div key={to}>{link}</div>
             })}
           </div>
