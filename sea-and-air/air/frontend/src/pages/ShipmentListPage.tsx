@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 import { Package, Trash } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
@@ -15,18 +15,24 @@ import { useAsync } from "@/hooks/useAsync"
 import { useStages } from "@/hooks/useStages"
 import { ApiError, customersApi, inquiriesApi, shipmentsApi } from "@/lib/api/client"
 import { formatDateTime } from "@/lib/format"
+import { filterShipments, parseShipmentQuery } from "@/lib/shipment-filters"
 import type { ShipmentFilters, ShipmentStage } from "@/lib/api/types"
 
 type ListTab = "active" | "completed"
 
 export function ShipmentListPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { stages } = useStages()
-  const [tab, setTab] = useState<ListTab>("active")
+  const queryString = searchParams.toString()
+  const query = useMemo(() => parseShipmentQuery(new URLSearchParams(queryString)), [queryString])
+  const [tab, setTab] = useState<ListTab>(() =>
+    query.stages.length === 1 && query.stages[0] === "invoice_to_customer" ? "completed" : "active",
+  )
   const [filters, setFilters] = useState<ShipmentFilters>({})
   const [deletingId, setDeletingId] = useState<number | null>(null)
 
-  const shipments = useAsync(() => shipmentsApi.list(filters), [filters.stage, filters.at_risk, filters.priority])
+  const shipments = useAsync(() => shipmentsApi.list(filters), [filters.stage, filters.at_risk, filters.priority, filters.mode])
   const customers = useAsync(() => customersApi.list(), [])
   const inquiries = useAsync(() => inquiriesApi.list(), [])
 
@@ -39,19 +45,22 @@ export function ShipmentListPage() {
     [inquiries.data],
   )
 
-  const visibleShipments = useMemo(
-    () =>
-      (shipments.data ?? []).filter((s) =>
-        tab === "completed" ? s.stage === "invoice_to_customer" : s.stage !== "invoice_to_customer",
-      ),
-    [shipments.data, tab],
-  )
+  const visibleShipments = useMemo(() => {
+    const queried = filterShipments(shipments.data ?? [], customers.data ?? [], inquiries.data ?? [], query)
+    return queried.filter((s) => (tab === "completed" ? s.stage === "invoice_to_customer" : s.stage !== "invoice_to_customer"))
+  }, [shipments.data, customers.data, inquiries.data, query, tab])
 
   const loading = shipments.loading || customers.loading || inquiries.loading
   const error = shipments.error ?? customers.error ?? inquiries.error
 
   const hasActiveFilters =
-    filters.stage !== undefined || filters.at_risk !== undefined || filters.priority !== undefined
+    filters.stage !== undefined || filters.at_risk !== undefined || filters.priority !== undefined || filters.mode !== undefined ||
+    query.search !== "" || query.atRisk || query.onHold || query.mode !== undefined || query.origin !== undefined || query.destination !== undefined || query.stages.length > 0
+
+  function clearFilters() {
+    setFilters({})
+    setSearchParams({})
+  }
 
   async function handleDelete(id: number, label: string) {
     if (!confirm(`Delete ${label}? This permanently erases it and cannot be undone.`)) return
@@ -138,7 +147,7 @@ export function ShipmentListPage() {
         </Select>
 
         {hasActiveFilters && (
-          <Button variant="ghost" size="sm" onClick={() => setFilters({})}>
+          <Button variant="ghost" size="sm" onClick={clearFilters}>
             Clear filters
           </Button>
         )}
@@ -165,7 +174,7 @@ export function ShipmentListPage() {
           }
           action={
             hasActiveFilters ? (
-              <Button variant="outline" onClick={() => setFilters({})}>
+                <Button variant="outline" onClick={clearFilters}>
                 Clear filters
               </Button>
             ) : undefined
