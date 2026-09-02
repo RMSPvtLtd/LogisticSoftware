@@ -5,6 +5,8 @@ type ComparableQuote = {
   total: string
 }
 
+type QuoteStatus = "draft" | "sent" | "accepted" | "expired" | "rejected"
+
 export function prepareQuoteComparison<T extends ComparableQuote>(offers: T[]) {
   const quotes = offers
     .filter((quote) => quote.is_current)
@@ -15,6 +17,15 @@ export function prepareQuoteComparison<T extends ComparableQuote>(offers: T[]) {
 
 export function manualSubtotal(items: { amount: string }[]) {
   return items.reduce((total, item) => total + (Number.isFinite(Number(item.amount)) ? Number(item.amount) : 0), 0)
+}
+
+export function quoteReference(quote: { id: number; root_quote_id: number | null; revision_number: number }) {
+  return `Q-${quote.root_quote_id ?? quote.id} Rev ${quote.revision_number}`
+}
+
+export function effectiveQuoteStatus(quote: { status: QuoteStatus; valid_until: string }, now = new Date()): QuoteStatus {
+  const localToday = new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10)
+  return (quote.status === "draft" || quote.status === "sent") && quote.valid_until < localToday ? "expired" : quote.status
 }
 
 function amount(value: string) {

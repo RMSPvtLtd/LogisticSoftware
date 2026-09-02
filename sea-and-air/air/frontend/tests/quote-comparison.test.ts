@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { manualSubtotal, prepareQuoteComparison } from "../src/lib/quote-comparison.ts"
+import { effectiveQuoteStatus, manualSubtotal, prepareQuoteComparison, quoteReference } from "../src/lib/quote-comparison.ts"
 
 test("comparison keeps current offers, sorts by real totals, and names one lowest price", () => {
   const quotes = [
@@ -27,4 +27,15 @@ test("comparison does not claim a lowest price across currencies", () => {
 
 test("manual subtotal uses only finite entered amounts", () => {
   assert.equal(manualSubtotal([{ amount: "100.25" }, { amount: "20" }, { amount: "" }, { amount: "invalid" }]), 120.25)
+})
+
+test("quote reference follows the displayed revision family", () => {
+  assert.equal(quoteReference({ id: 21, root_quote_id: 8, revision_number: 3 }), "Q-8 Rev 3")
+  assert.equal(quoteReference({ id: 9, root_quote_id: null, revision_number: 1 }), "Q-9 Rev 1")
+})
+
+test("effective status mirrors backend lazy expiry for draft and sent quotes", () => {
+  assert.equal(effectiveQuoteStatus({ status: "draft", valid_until: "2026-09-01" }, new Date("2026-09-02T12:00:00")), "expired")
+  assert.equal(effectiveQuoteStatus({ status: "sent", valid_until: "2026-09-02" }, new Date("2026-09-02T23:59:00")), "sent")
+  assert.equal(effectiveQuoteStatus({ status: "accepted", valid_until: "2026-08-01" }, new Date("2026-09-02T12:00:00")), "accepted")
 })

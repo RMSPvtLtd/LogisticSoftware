@@ -26,7 +26,7 @@ function SidebarNav({ closeOnNavigate = false }: { closeOnNavigate?: boolean }) 
           <p className="mb-1.5 px-3 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{group.label}</p>
           <div className="space-y-0.5">
             {group.links.map(({ to, label, icon: Icon }) => {
-              const link = <NavLink to={to} end={to === "/overview" || to === "/quotes"} className={({ isActive }) => cn("flex min-h-9 items-center gap-2.5 rounded-lg px-3 text-sm font-medium transition-colors duration-150", isActive ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}><Icon size={17} aria-hidden="true" />{label}</NavLink>
+              const link = <NavLink to={to} end={to === "/overview"} className={({ isActive }) => cn("flex min-h-9 items-center gap-2.5 rounded-lg px-3 text-sm font-medium transition-colors duration-150", isActive ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}><Icon size={17} aria-hidden="true" />{label}</NavLink>
               return closeOnNavigate ? <SheetClose asChild key={to}>{link}</SheetClose> : <div key={to}>{link}</div>
             })}
           </div>
