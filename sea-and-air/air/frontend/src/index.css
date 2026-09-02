@@ -5,6 +5,8 @@
 
 :root {
   --radius: 0.5rem;
+  --sidebar-width: 15rem;
+  --topbar-height: 3.5rem;
 
   /* Professional navy/slate palette for an internal logistics tool --
      see ui-ux-pro-max "B2B Service" color result. */
@@ -125,5 +127,21 @@
      jitter as digits change (ui-ux-pro-max: number-tabular). */
   .tabular-nums {
     font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

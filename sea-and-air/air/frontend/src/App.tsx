@@ -11,6 +11,7 @@ import { ProtectedOpsRoute } from "@/components/shared/ProtectedOpsRoute"
 import { ProtectedWorkerRoute } from "@/components/shared/ProtectedWorkerRoute"
 import { ProtectedCustomerRoute } from "@/components/shared/ProtectedCustomerRoute"
 import { OpsLoginPage } from "@/pages/OpsLoginPage"
+import { OverviewPage } from "@/pages/OverviewPage"
 import { ShipmentListPage } from "@/pages/ShipmentListPage"
 import { ShipmentDetailPage } from "@/pages/ShipmentDetailPage"
 import { InvoicePreviewPage } from "@/pages/InvoicePreviewPage"
@@ -49,7 +50,7 @@ function App() {
   return (
     <StagesProvider>
       <Routes>
-        <Route path="/" element={<Navigate to="/shipments" replace />} />
+        <Route path="/" element={<Navigate to="/overview" replace />} />
 
         <Route element={<OpsAuthLayout />}>
           <Route path="/login" element={<OpsLoginPage />} />
@@ -60,6 +61,7 @@ function App() {
               </ProtectedOpsRoute>
             }
           >
+            <Route path="/overview" element={<OverviewPage />} />
             <Route path="/shipments" element={<ShipmentListPage />} />
             <Route path="/shipments/:id" element={<ShipmentDetailPage />} />
             <Route path="/shipments/:id/generate-invoice" element={<InvoicePreviewPage />} />
