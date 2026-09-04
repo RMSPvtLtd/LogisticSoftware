@@ -1,6 +1,6 @@
-import { useState } from "react"
+import { Fragment, useMemo, useState } from "react"
 import { toast } from "sonner"
-import { Plus, UserCircle } from "@phosphor-icons/react"
+import { MagnifyingGlass, Plus, UserCircle } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { LoadingState, ErrorState } from "@/components/shared/States"
 import { Card, CardContent } from "@/components/ui/card"
@@ -21,14 +21,25 @@ import {
 import { useAsync } from "@/hooks/useAsync"
 import { useStages } from "@/hooks/useStages"
 import { areasApi, workersApi, ApiError } from "@/lib/api/client"
+import type { Area, Worker } from "@/lib/api/types"
 
 export function WorkersAdminPage() {
   const areas = useAsync(() => areasApi.list(), [])
   const workers = useAsync(() => workersApi.list(), [])
   const { groupFor } = useStages()
+  const [search, setSearch] = useState("")
 
   const loading = areas.loading || workers.loading
   const error = areas.error ?? workers.error
+  const rows = useMemo(() => {
+    const term = search.trim().toLocaleLowerCase()
+    return (areas.data ?? []).flatMap<{ area: Area; worker: Worker | null }>((area) => {
+      const assigned = (workers.data ?? []).filter((worker) => worker.area.id === area.id)
+      const areaMatches = !term || [area.name, area.stage].some((value) => value.toLocaleLowerCase().includes(term))
+      const matches = areaMatches ? assigned : assigned.filter((worker) => [worker.name, worker.username].some((value) => value.toLocaleLowerCase().includes(term)))
+      return matches.length ? matches.map((worker) => ({ area, worker })) : areaMatches ? [{ area, worker: null }] : []
+    })
+  }, [areas.data, search, workers.data])
 
   return (
     <div>
@@ -46,7 +57,9 @@ export function WorkersAdminPage() {
       {!loading && error && <ErrorState message={error} onRetry={workers.reload} />}
 
       {!loading && !error && (
-        <div className="space-y-6">
+        <><div className="relative mb-4"><MagnifyingGlass size={17} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Search workers" placeholder="Search worker, username, area, or stage…" className="pl-9" /></div>
+        <WorkerMatrix rows={rows} onChanged={workers.reload} />
+        <div className="space-y-6 lg:hidden">
           {areas.data!.map((area, i) => {
             const areaWorkers = workers.data!.filter((w) => w.area.id === area.id)
             const group = groupFor(area.stage)
@@ -95,10 +108,14 @@ export function WorkersAdminPage() {
               </div>
             )
           })}
-        </div>
+        </div></>
       )}
     </div>
   )
+}
+
+function WorkerMatrix({ rows, onChanged }: { rows: { area: Area; worker: Worker | null }[]; onChanged: () => void }) {
+  return <div className="hidden overflow-auto rounded-xl border border-border lg:block"><table className="w-full text-sm"><thead className="bg-muted/40"><tr><th className="h-10 px-3 text-left font-medium">Area</th><th className="px-3 text-left font-medium">Stage</th><th className="px-3 text-left font-medium">Worker</th><th className="px-3 text-left font-medium">Username</th><th className="px-3 text-left font-medium">Status</th><th className="px-3 text-right font-medium">Actions</th></tr></thead><tbody>{rows.map(({ area, worker }) => <Fragment key={`${area.id}-${worker?.id ?? "empty"}`}><tr className="border-t border-border"><td className="p-3 font-medium">{area.name}</td><td className="p-3 text-muted-foreground">{area.stage.replaceAll("_", " ")}</td><td className="p-3">{worker?.name ?? "No worker assigned"}</td><td className="p-3 text-muted-foreground">{worker ? `@${worker.username}` : "—"}</td><td className="p-3"><Badge variant="outline">{worker ? worker.is_active ? "Active" : "Inactive" : "Unstaffed"}</Badge></td><td className="p-3 text-right">{worker && <ToggleActiveButton workerId={worker.id} isActive={worker.is_active} onChanged={onChanged} />}</td></tr></Fragment>)}</tbody></table></div>
 }
 
 function ToggleActiveButton({
@@ -204,7 +221,7 @@ function CreateWorkerDialog({
           <div className="space-y-1.5">
             <Label>Area</Label>
             <Select value={areaId} onValueChange={setAreaId}>
-              <SelectTrigger className="w-full">
+              <SelectTrigger className="w-full" aria-label="Worker area">
                 <SelectValue placeholder="Select an area" />
               </SelectTrigger>
               <SelectContent>

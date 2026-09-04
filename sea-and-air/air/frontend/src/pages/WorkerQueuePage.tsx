@@ -71,8 +71,8 @@ export function WorkerQueuePage() {
 
         <Tabs value={tab} onValueChange={handleTabChange} className="mb-3">
           <TabsList>
-            <TabsTrigger value="remaining">Remaining</TabsTrigger>
-            <TabsTrigger value="completed">Completed</TabsTrigger>
+            <TabsTrigger value="remaining">Remaining <span className="tabular-nums text-muted-foreground">{remaining.data?.length ?? 0}</span></TabsTrigger>
+            <TabsTrigger value="completed">Completed <span className="tabular-nums text-muted-foreground">{completed.data?.length ?? 0}</span></TabsTrigger>
           </TabsList>
         </Tabs>
 
@@ -181,6 +181,7 @@ function QueueItemCard({
   const [note, setNote] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [fileFeedback, setFileFeedback] = useState("")
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   async function handleComplete() {
@@ -199,18 +200,23 @@ function QueueItemCard({
   async function handleFileChosen(file: File | undefined) {
     if (!file) return
     if (file.type !== "application/pdf") {
+      setFileFeedback(`${file.name}: only PDF files are accepted.`)
       toast.error("Only PDF files can be attached.")
       return
     }
     if (file.size > MAX_UPLOAD_BYTES) {
+      setFileFeedback(`${file.name}: exceeds the 4 MB limit.`)
       toast.error(`File exceeds the ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB upload limit.`)
       return
     }
+    setFileFeedback(`${file.name} · ${(file.size / 1024).toFixed(0)} KB · uploading`)
     setUploading(true)
     try {
       await workerPortalApi.uploadDocument(token, item.id, file)
+      setFileFeedback(`${file.name} · ${(file.size / 1024).toFixed(0)} KB · attached`)
       toast.success("Document attached")
     } catch (err) {
+      setFileFeedback(`${file.name}: upload failed.`)
       toast.error(err instanceof ApiError ? err.message : "Could not attach document.")
     } finally {
       setUploading(false)
@@ -254,7 +260,7 @@ function QueueItemCard({
           />
           <Button
             variant="outline"
-            className="gap-1.5"
+            className="min-h-12 gap-1.5"
             disabled={uploading}
             onClick={() => fileInputRef.current?.click()}
           >
@@ -266,6 +272,7 @@ function QueueItemCard({
             {submitting ? "Marking done…" : "Mark Done"}
           </Button>
         </div>
+        {fileFeedback && <p className="text-xs text-muted-foreground" role="status">{fileFeedback}</p>}
       </CardContent>
     </Card>
   )
