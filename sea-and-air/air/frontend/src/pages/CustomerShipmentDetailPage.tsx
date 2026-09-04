@@ -3,18 +3,23 @@ import { Prohibit, Warning } from "@phosphor-icons/react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { StageChecklist } from "@/components/shared/StageChecklist"
 import { EventTimeline } from "@/components/shared/EventTimeline"
+import { JourneyRail } from "@/components/shared/JourneyRail"
+import { RouteOverview } from "@/components/shared/RouteOverview"
 import { LoadingState, ErrorState } from "@/components/shared/States"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { useAsync } from "@/hooks/useAsync"
 import { useCustomerAuth } from "@/hooks/useCustomerAuth"
+import { useStages } from "@/hooks/useStages"
 import { customerPortalApi } from "@/lib/api/client"
+import { formatRelativeTime } from "@/lib/format"
 
 const MODE_LABEL: Record<string, string> = { air: "Air Freight", sea: "Sea Freight", road: "Road Freight" }
 
 export function CustomerShipmentDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { token } = useCustomerAuth()
+  const { stages, labelFor } = useStages()
   const shipmentId = Number(id)
 
   const result = useAsync(() => customerPortalApi.shipment(token!, shipmentId), [token, shipmentId])
@@ -25,9 +30,11 @@ export function CustomerShipmentDetailPage() {
   }
 
   const r = result.data
+  const latest = r.status_history.toSorted((a, b) => b.timestamp.localeCompare(a.timestamp))[0]
+  const next = r.checklist.find((item) => item.status === "upcoming")
 
   return (
-    <div className="mx-auto max-w-xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6">
       <PageHeader
         title={
           <span className="flex flex-wrap items-center gap-2">
@@ -54,6 +61,13 @@ export function CustomerShipmentDetailPage() {
           </p>
         </div>
       )}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card><CardContent className="py-5"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Current situation</p><p className="mt-2 font-heading text-xl font-semibold">{labelFor(r.stage)}</p><p className="mt-1 text-sm text-muted-foreground">{latest ? `Updated ${formatRelativeTime(latest.timestamp)}` : "No activity update yet"}</p><div className="mt-4 border-t border-border pt-3"><p className="text-xs text-muted-foreground">What happens next</p><p className="mt-1 text-sm font-medium">{next ? labelFor(next.stage) : "Journey complete"}</p></div></CardContent></Card>
+        <RouteOverview origin={r.origin} destination={r.destination} mode={r.mode} />
+      </div>
+
+      <Card><CardContent className="overflow-x-auto py-5"><p className="mb-4 text-xs font-medium uppercase tracking-wide text-muted-foreground">Journey</p><JourneyRail stages={stages} currentStage={r.stage} /></CardContent></Card>
 
       <Card>
         <CardContent className="py-6">

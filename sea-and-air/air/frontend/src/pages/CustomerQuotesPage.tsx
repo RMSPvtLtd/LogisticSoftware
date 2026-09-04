@@ -9,6 +9,7 @@ import { useAsync } from "@/hooks/useAsync"
 import { useCustomerAuth } from "@/hooks/useCustomerAuth"
 import { customerPortalApi } from "@/lib/api/client"
 import { formatDate, formatMoney } from "@/lib/format"
+import { prepareQuoteComparison } from "@/lib/quote-comparison"
 import type { Quote, QuoteStatus } from "@/lib/api/types"
 
 const STATUS_LABEL: Record<QuoteStatus, string> = {
@@ -64,8 +65,9 @@ export function CustomerQuotesPage() {
 
 function InquiryGroupCard({ quotes }: { quotes: Quote[] }) {
   const first = quotes[0]
-  const current = quotes.filter((q) => q.is_current)
+  const { quotes: current, lowestQuoteId } = prepareQuoteComparison(quotes)
   const superseded = quotes.filter((q) => !q.is_current)
+  const ordered = [...current, ...superseded]
 
   return (
     <Card>
@@ -78,7 +80,7 @@ function InquiryGroupCard({ quotes }: { quotes: Quote[] }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="overflow-x-auto">
+        <div className="hidden overflow-x-auto md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -90,7 +92,7 @@ function InquiryGroupCard({ quotes }: { quotes: Quote[] }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {[...current, ...superseded].map((quote) => (
+              {ordered.map((quote) => (
                 <TableRow key={quote.id} className={!quote.is_current ? "opacity-60" : undefined}>
                   <TableCell className="font-medium tabular-nums">
                     <Link
@@ -100,7 +102,7 @@ function InquiryGroupCard({ quotes }: { quotes: Quote[] }) {
                       Q-{quote.root_quote_id ?? quote.id} Rev {quote.revision_number}
                     </Link>
                   </TableCell>
-                  <TableCell>{quote.carrier ?? "—"}</TableCell>
+                  <TableCell>{quote.carrier ?? "—"}{quote.id === lowestQuoteId && <Badge className="ml-2 bg-status-success-bg text-status-success">Lowest price</Badge>}</TableCell>
                   <TableCell className="flex flex-wrap items-center gap-1.5">
                     <Badge variant="outline">{STATUS_LABEL[quote.status]}</Badge>
                     {!quote.is_current && <Badge variant="secondary">Superseded</Badge>}
@@ -114,6 +116,7 @@ function InquiryGroupCard({ quotes }: { quotes: Quote[] }) {
             </TableBody>
           </Table>
         </div>
+        <ul className="space-y-2 p-4 md:hidden" aria-label="Carrier offers">{ordered.map((quote) => <li key={quote.id} className={!quote.is_current ? "rounded-lg border border-border p-3 opacity-60" : "rounded-lg border border-border p-3"}><div className="flex items-start justify-between gap-3"><div><Link to={`/customer/quotes/${quote.id}`} className="font-medium tabular-nums hover:underline">Q-{quote.root_quote_id ?? quote.id} Rev {quote.revision_number}</Link><p className="text-sm text-muted-foreground">{quote.carrier ?? "Unspecified carrier"}</p></div><Badge variant="outline">{STATUS_LABEL[quote.status]}</Badge></div><div className="mt-3 flex items-end justify-between gap-3"><p className="text-xs text-muted-foreground">Valid {formatDate(quote.valid_until)}</p><div className="text-right">{quote.id === lowestQuoteId && <p className="text-xs text-status-success">Lowest price</p>}<p className="font-heading font-semibold tabular-nums">{formatMoney(quote.total, quote.currency)}</p></div></div></li>)}</ul>
       </CardContent>
     </Card>
   )

@@ -7,12 +7,15 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { StageChecklist } from "@/components/shared/StageChecklist"
 import { EventTimeline } from "@/components/shared/EventTimeline"
+import { JourneyRail } from "@/components/shared/JourneyRail"
+import { RouteOverview } from "@/components/shared/RouteOverview"
 import { ContainerTimeline } from "@/components/shared/ContainerTimeline"
 import { ContainerDetailCard } from "@/components/shared/ContainerDetailCard"
 import { LoadingState } from "@/components/shared/States"
 import { useAsync } from "@/hooks/useAsync"
 import { useStages } from "@/hooks/useStages"
 import { trackingApi, seaTrackingApi, ApiError } from "@/lib/api/client"
+import { formatRelativeTime } from "@/lib/format"
 import type { SeaTrackingResult } from "@/lib/api/types"
 
 const MODE_LABEL: Record<string, string> = { air: "Air Freight", sea: "Sea Freight", road: "Road Freight" }
@@ -43,6 +46,7 @@ export function TrackingPage() {
 
   return (
     <div className="space-y-8">
+      <section className="rounded-2xl border border-border bg-card px-4 py-8 sm:px-8">
       <div className="text-center">
         <h1 className="font-heading text-2xl font-semibold text-foreground sm:text-3xl">Track Your Shipment</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -74,6 +78,7 @@ export function TrackingPage() {
           </Button>
         </form>
       </div>
+      </section>
 
       {mode === "air" && reference && <AirTrackingResultView reference={reference} />}
       {mode === "sea" && containerNumber && <SeaTrackingResultView containerNumber={containerNumber} />}
@@ -104,9 +109,11 @@ function AirTrackingResultView({ reference }: { reference: string }) {
   }
 
   const r = result.data!
+  const latest = r.status_history.toSorted((a, b) => b.timestamp.localeCompare(a.timestamp))[0]
+  const next = r.checklist.find((item) => item.status === "upcoming")
 
   return (
-    <div className="mx-auto max-w-xl space-y-6">
+    <div className="mx-auto max-w-3xl space-y-6">
       <div className="text-center">
         <p className="font-heading text-xl font-semibold tabular-nums text-foreground">
           {r.job_number ?? labelFor(r.stage)}
@@ -133,6 +140,13 @@ function AirTrackingResultView({ reference }: { reference: string }) {
           </p>
         </div>
       )}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card><CardContent className="py-5"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Current milestone</p><p className="mt-2 font-heading text-xl font-semibold">{labelFor(r.stage)}</p><p className="mt-1 text-sm text-muted-foreground">{latest ? `Updated ${formatRelativeTime(latest.timestamp)}` : "No activity update yet"}</p><div className="mt-4 border-t border-border pt-3"><p className="text-xs text-muted-foreground">Next milestone</p><p className="mt-1 text-sm font-medium">{next ? labelFor(next.stage) : "Journey complete"}</p></div></CardContent></Card>
+        <RouteOverview origin={r.origin} destination={r.destination} mode={r.mode} />
+      </div>
+
+      <Card><CardContent className="overflow-x-auto py-5"><p className="mb-4 text-xs font-medium uppercase tracking-wide text-muted-foreground">Shipment journey</p><JourneyRail stages={stages} currentStage={r.stage} /></CardContent></Card>
 
       <Card>
         <CardContent className="py-6">
@@ -224,20 +238,16 @@ function SeaTrackingResultView({ containerNumber }: { containerNumber: string })
   }
 
   const r = state.data
+  const detail = r.details.find((item) => item.current_position || item.origin || item.destination)
 
   return (
-    <div className="mx-auto max-w-xl space-y-6">
+    <div className="mx-auto max-w-3xl space-y-6">
       <div className="text-center">
         <p className="font-heading text-xl font-semibold tabular-nums text-foreground">{r.container_number}</p>
         <p className="mt-1 text-sm text-muted-foreground">Terminal: {r.terminal}</p>
       </div>
 
-      <Card>
-        <CardContent className="flex items-center justify-between py-5">
-          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Status</p>
-          <p className="font-heading text-base font-semibold text-foreground">{r.status}</p>
-        </CardContent>
-      </Card>
+      <div className="grid gap-4 md:grid-cols-2"><Card><CardContent className="py-5"><p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Current status</p><p className="mt-2 font-heading text-xl font-semibold text-foreground">{r.status}</p>{detail?.current_position && <><p className="mt-4 text-xs text-muted-foreground">Reported position</p><p className="mt-1 text-sm font-medium">{detail.current_position}</p></>}</CardContent></Card>{detail?.origin && detail.destination && <RouteOverview origin={detail.origin} destination={detail.destination} mode="sea" />}</div>
 
       <Card>
         <CardContent className="py-6">
