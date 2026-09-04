@@ -40,6 +40,15 @@ export function WorkersAdminPage() {
       return matches.length ? matches.map((worker) => ({ area, worker })) : areaMatches ? [{ area, worker: null }] : []
     })
   }, [areas.data, search, workers.data])
+  const mobileAreas = rows.reduce<{ area: Area; workers: Worker[] }[]>((groups, row) => {
+    let group = groups.at(-1)
+    if (group?.area.id !== row.area.id) {
+      group = { area: row.area, workers: [] }
+      groups.push(group)
+    }
+    if (row.worker) group.workers.push(row.worker)
+    return groups
+  }, [])
 
   return (
     <div>
@@ -60,10 +69,9 @@ export function WorkersAdminPage() {
         <><div className="relative mb-4"><MagnifyingGlass size={17} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Search workers" placeholder="Search worker, username, area, or stage…" className="pl-9" /></div>
         <WorkerMatrix rows={rows} onChanged={workers.reload} />
         <div className="space-y-6 lg:hidden">
-          {areas.data!.map((area, i) => {
-            const areaWorkers = workers.data!.filter((w) => w.area.id === area.id)
+          {mobileAreas.map(({ area, workers: areaWorkers }, i) => {
             const group = groupFor(area.stage)
-            const previousGroup = i > 0 ? groupFor(areas.data![i - 1].stage) : null
+            const previousGroup = i > 0 ? groupFor(mobileAreas[i - 1].area.stage) : null
             const showGroupHeader = group !== null && group !== previousGroup
             return (
               <div key={area.id}>

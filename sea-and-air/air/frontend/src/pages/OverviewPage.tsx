@@ -23,7 +23,7 @@ const metricTargets = {
   active: "/shipments",
   atRisk: "/shipments?at_risk=true",
   onHold: "/shipments?on_hold=true",
-  readyToInvoice: "/shipments?stage=arrival",
+  readyToInvoice: "/shipments?stage=arrival&ready_to_invoice=true",
 } as const
 
 function shipmentHref(params: Record<string, string>) {

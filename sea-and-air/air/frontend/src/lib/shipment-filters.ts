@@ -4,6 +4,7 @@ export interface ShipmentQuery {
   search: string
   atRisk: boolean
   onHold: boolean
+  readyToInvoice: boolean
   mode?: TransportMode
   origin?: string
   destination?: string
@@ -22,6 +23,7 @@ export function parseShipmentQuery(params: URLSearchParams): ShipmentQuery {
     search: params.get("search")?.trim() ?? "",
     atRisk: params.get("at_risk") === "true",
     onHold: params.get("on_hold") === "true",
+    readyToInvoice: params.get("ready_to_invoice") === "true",
     mode: mode || undefined,
     origin: params.get("origin")?.trim() || undefined,
     destination: params.get("destination")?.trim() || undefined,
@@ -45,6 +47,7 @@ export function filterShipments(
     const inquiry = inquiryById.get(shipment.inquiry_id)
     if (query.atRisk && !shipment.is_at_risk) return false
     if (query.onHold && !shipment.is_on_hold) return false
+    if (query.readyToInvoice && (shipment.stage !== "arrival" || shipment.is_on_hold || shipment.is_cancelled)) return false
     if (query.mode && inquiry?.mode !== query.mode) return false
     if (query.origin && text(inquiry?.origin) !== text(query.origin)) return false
     if (query.destination && text(inquiry?.destination) !== text(query.destination)) return false

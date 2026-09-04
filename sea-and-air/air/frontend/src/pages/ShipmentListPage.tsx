@@ -26,12 +26,12 @@ const QUICK_VIEWS: { id: QuickView; label: string }[] = [
   { id: "readyToInvoice", label: "Ready to invoice" }, { id: "completed", label: "Completed" },
 ]
 
-function matchesQuickView(view: QuickView, shipment: { stage: string; is_at_risk: boolean; is_on_hold: boolean; priority: string }) {
+function matchesQuickView(view: QuickView, shipment: { stage: string; is_at_risk: boolean; is_on_hold: boolean; is_cancelled: boolean; priority: string }) {
   if (view === "attention") return shipment.is_at_risk || shipment.is_on_hold
   if (view === "atRisk") return shipment.is_at_risk
   if (view === "onHold") return shipment.is_on_hold
   if (view === "highPriority") return shipment.priority === "high"
-  if (view === "readyToInvoice") return shipment.stage === "arrival"
+  if (view === "readyToInvoice") return shipment.stage === "arrival" && !shipment.is_on_hold && !shipment.is_cancelled
   if (view === "completed") return shipment.stage === "invoice_to_customer"
   return true
 }

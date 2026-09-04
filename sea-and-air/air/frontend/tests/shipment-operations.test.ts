@@ -1,24 +1,37 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { attentionText, formatWaitingAge, journeyRail, quickViewCounts, stageEnteredAt, withShipmentSearch } from "../src/lib/shipment-operations.ts"
+import { attentionText, customerJourneyState, formatWaitingAge, journeyRail, quickViewCounts, stageEnteredAt, withShipmentSearch } from "../src/lib/shipment-operations.ts"
 
 test("quick views count real shipment states", () => {
   const counts = quickViewCounts([
-    { stage: "arrival", is_at_risk: true, is_on_hold: false, priority: "high" },
-    { stage: "invoice_to_customer", is_at_risk: false, is_on_hold: false, priority: "medium" },
-    { stage: "departure", is_at_risk: false, is_on_hold: true, priority: "low" },
+    { stage: "arrival", is_at_risk: true, is_on_hold: false, is_cancelled: false, priority: "high" },
+    { stage: "arrival", is_at_risk: false, is_on_hold: true, is_cancelled: false, priority: "medium" },
+    { stage: "arrival", is_at_risk: false, is_on_hold: false, is_cancelled: true, priority: "medium" },
+    { stage: "invoice_to_customer", is_at_risk: false, is_on_hold: false, is_cancelled: false, priority: "medium" },
+    { stage: "departure", is_at_risk: false, is_on_hold: true, is_cancelled: false, priority: "low" },
   ])
 
   assert.deepEqual(counts, {
-    all: 3,
-    attention: 2,
+    all: 5,
+    attention: 3,
     atRisk: 1,
-    onHold: 1,
+    onHold: 2,
     highPriority: 1,
     readyToInvoice: 1,
     completed: 1,
   })
+})
+
+test("cancelled customer journeys expose no future progression", () => {
+  const checklist = [
+    { stage: "pickup", status: "completed" },
+    { stage: "airport", status: "current" },
+    { stage: "departure", status: "upcoming" },
+  ] as const
+
+  assert.deepEqual(customerJourneyState(checklist, true), { items: checklist.slice(0, 2), next: undefined })
+  assert.deepEqual(customerJourneyState(checklist, false), { items: checklist, next: checklist[2] })
 })
 
 test("waiting age uses the latest current-stage entry only", () => {

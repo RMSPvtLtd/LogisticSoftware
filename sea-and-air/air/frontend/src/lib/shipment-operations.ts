@@ -2,6 +2,7 @@ export interface ShipmentOperationState {
   stage: string
   is_at_risk: boolean
   is_on_hold: boolean
+  is_cancelled: boolean
   priority: string
 }
 
@@ -29,7 +30,7 @@ export function quickViewCounts(shipments: ShipmentOperationState[]) {
     atRisk: shipments.filter((shipment) => shipment.is_at_risk).length,
     onHold: shipments.filter((shipment) => shipment.is_on_hold).length,
     highPriority: shipments.filter((shipment) => shipment.priority === "high").length,
-    readyToInvoice: shipments.filter((shipment) => shipment.stage === "arrival").length,
+    readyToInvoice: shipments.filter((shipment) => shipment.stage === "arrival" && !shipment.is_on_hold && !shipment.is_cancelled).length,
     completed: shipments.filter((shipment) => shipment.stage === "invoice_to_customer").length,
   }
 }
@@ -81,4 +82,11 @@ export function withShipmentSearch(params: URLSearchParams, search: string): URL
   if (search) next.set("search", search)
   else next.delete("search")
   return next
+}
+
+export function customerJourneyState<T extends { status: string }>(items: readonly T[], isCancelled: boolean) {
+  return {
+    items: isCancelled ? items.filter((item) => item.status !== "upcoming") : [...items],
+    next: isCancelled ? undefined : items.find((item) => item.status === "upcoming"),
+  }
 }

@@ -16,6 +16,7 @@ import { useAsync } from "@/hooks/useAsync"
 import { useStages } from "@/hooks/useStages"
 import { trackingApi, seaTrackingApi, ApiError } from "@/lib/api/client"
 import { formatRelativeTime } from "@/lib/format"
+import { customerJourneyState } from "@/lib/shipment-operations"
 import type { SeaTrackingResult } from "@/lib/api/types"
 
 const MODE_LABEL: Record<string, string> = { air: "Air Freight", sea: "Sea Freight", road: "Road Freight" }
@@ -110,7 +111,7 @@ function AirTrackingResultView({ reference }: { reference: string }) {
 
   const r = result.data!
   const latest = r.status_history.toSorted((a, b) => b.timestamp.localeCompare(a.timestamp))[0]
-  const next = r.checklist.find((item) => item.status === "upcoming")
+  const journey = customerJourneyState(r.checklist, r.is_cancelled)
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -142,16 +143,16 @@ function AirTrackingResultView({ reference }: { reference: string }) {
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
-        <Card><CardContent className="py-5"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Current milestone</p><p className="mt-2 font-heading text-xl font-semibold">{labelFor(r.stage)}</p><p className="mt-1 text-sm text-muted-foreground">{latest ? `Updated ${formatRelativeTime(latest.timestamp)}` : "No activity update yet"}</p><div className="mt-4 border-t border-border pt-3"><p className="text-xs text-muted-foreground">Next milestone</p><p className="mt-1 text-sm font-medium">{next ? labelFor(next.stage) : "Journey complete"}</p></div></CardContent></Card>
+        <Card><CardContent className="py-5"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{r.is_cancelled ? "Shipment status" : "Current milestone"}</p><p className="mt-2 font-heading text-xl font-semibold">{r.is_cancelled ? "Cancelled" : labelFor(r.stage)}</p><p className="mt-1 text-sm text-muted-foreground">{latest ? `Updated ${formatRelativeTime(latest.timestamp)}` : "No activity update yet"}</p><div className="mt-4 border-t border-border pt-3"><p className="text-xs text-muted-foreground">{r.is_cancelled ? "Last recorded milestone" : "Next milestone"}</p><p className="mt-1 text-sm font-medium">{r.is_cancelled ? labelFor(r.stage) : journey.next ? labelFor(journey.next.stage) : "Journey complete"}</p></div></CardContent></Card>
         <RouteOverview origin={r.origin} destination={r.destination} mode={r.mode} />
       </div>
 
-      <Card><CardContent className="overflow-x-auto py-5"><p className="mb-4 text-xs font-medium uppercase tracking-wide text-muted-foreground">Shipment journey</p><JourneyRail stages={stages} currentStage={r.stage} /></CardContent></Card>
+      {!r.is_cancelled && <Card><CardContent className="overflow-x-auto py-5"><p className="mb-4 text-xs font-medium uppercase tracking-wide text-muted-foreground">Shipment journey</p><JourneyRail stages={stages} currentStage={r.stage} /></CardContent></Card>}
 
       <Card>
         <CardContent className="py-6">
           <p className="mb-4 text-xs font-medium tracking-wide text-muted-foreground uppercase">Current Status</p>
-          <StageChecklist items={r.checklist} />
+          <StageChecklist items={journey.items} />
         </CardContent>
       </Card>
 
